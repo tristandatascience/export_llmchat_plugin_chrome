@@ -11,6 +11,10 @@ Chrome extension, 100% local — no data ever leaves your browser.
 
 </div>
 
+<p align="center">
+  <img src="docs/popup-fr.png" alt="Popup de l'extension — aperçu en français / Extension popup — French preview" width="320">
+</p>
+
 ---
 
 ## 🇫🇷 Français
@@ -88,6 +92,7 @@ copilot-exporter/   ← l'extension Chrome (à charger dans chrome://extensions)
   popup.html/css/js ← interface (menus plateforme/langue, options)
   icons/            ← icônes
 tools/              ← scripts de développement (générateur d'icônes…)
+docs/               ← captures d'écran (popup, bannière store 1280x800)
 ```
 
 ---
@@ -166,7 +171,8 @@ copilot-exporter/   ← the Chrome extension (load it in chrome://extensions)
   pdf.js            ← standalone PDF engine
   popup.html/css/js ← UI (platform/language dropdowns, options)
   icons/            ← icons
-tools/              ← dev scripts (icon generator…)
+tools/              ← dev scripts (icon generator, screenshot cropper…)
+docs/               ← screenshots (popup preview, store banner 1280x800)
 ```
 
 ## Privacy / Confidentialité
