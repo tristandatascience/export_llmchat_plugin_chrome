@@ -12,6 +12,16 @@ const platformSel = $('platform');
 const langSel = $('lang');
 const buttons = [$('btn-md'), $('btn-pdf'), $('btn-txt'), $('btn-copy')];
 
+// ------------------------------------------------------------------
+// Soutien / donation — mettez votre URL ici pour afficher le lien
+// « ☕ Offrir un café » dans le popup. Laissez vide pour le masquer.
+// Exemples :
+//   const DONATION_URL = 'https://ko-fi.com/votre_id';
+//   const DONATION_URL = 'https://www.paypal.me/votre_id';
+//   const DONATION_URL = 'https://github.com/sponsors/tristandatascience';
+// ------------------------------------------------------------------
+const DONATION_URL = '';
+
 const HOST_TO_PLATFORM = {
   'copilot.com': 'copilot',
   'www.copilot.com': 'copilot',
@@ -49,6 +59,7 @@ const I18N = {
     scrollOpt: 'Défiler pour tout charger (historique long)',
     headerOpt: "Inclure l'en-tête (date, URL, titre)",
     footer: '100 % local — aucune donnée ne quitte votre navigateur.',
+    donate: 'Offrir un café',
     reading: 'Lecture de la conversation en cours…',
     noTab: 'Aucun onglet actif.',
     invalidResponse: 'Réponse invalide du content script.',
@@ -75,6 +86,7 @@ const I18N = {
     scrollOpt: 'Scroll to load the full history (long conversations)',
     headerOpt: 'Include the header (date, URL, title)',
     footer: '100% local — no data ever leaves your browser.',
+    donate: 'Buy me a coffee',
     reading: 'Reading the conversation…',
     noTab: 'No active tab.',
     invalidResponse: 'Invalid response from the content script.',
@@ -108,6 +120,12 @@ function applyTranslations() {
     if (typeof value === 'string') el.textContent = value;
   }
   document.documentElement.lang = resolveUiLang();
+  // Lien de soutien : visible uniquement si une URL est configurée
+  const donate = $('donate');
+  if (DONATION_URL) {
+    donate.href = DONATION_URL;
+    donate.hidden = false;
+  }
 }
 
 // ------------------------------------------------------------------
