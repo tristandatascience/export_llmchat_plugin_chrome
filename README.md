@@ -7,6 +7,8 @@
 Extension Chrome, 100 % locale — aucune donnée ne quitte votre navigateur.
 Chrome extension, 100% local — no data ever leaves your browser.
 
+☕ Soutenez le développement / Support the development : **[ko-fi.com/tristanlozahic](https://ko-fi.com/tristanlozahic)**
+
 </div>
 
 ---
@@ -17,6 +19,9 @@ Exportez une **conversation entière** depuis votre assistant IA préféré vers
 fichier **Markdown (.md)**, **PDF (.pdf)** ou **texte (.txt)**, ou copiez-la
 dans le presse-papiers. Interface disponible en **français et anglais**
 (suit la langue du navigateur, ou forçage via le menu déroulant).
+
+☕ Si cette extension vous est utile, vous pouvez [soutenir son développement
+sur Ko-fi](https://ko-fi.com/tristanlozahic).
 
 ### Plateformes prises en charge
 
@@ -94,6 +99,9 @@ Export an **entire conversation** from your favourite AI assistant to a
 to the clipboard. UI available in **French and English** (follows the browser
 language by default — English for any non-French browser — or force it from
 the dropdown).
+
+☕ If you find this extension useful, you can [support its development on
+Ko-fi](https://ko-fi.com/tristanlozahic).
 
 ### Supported platforms
 

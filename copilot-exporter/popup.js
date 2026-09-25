@@ -20,7 +20,7 @@ const buttons = [$('btn-md'), $('btn-pdf'), $('btn-txt'), $('btn-copy')];
 //   const DONATION_URL = 'https://www.paypal.me/votre_id';
 //   const DONATION_URL = 'https://github.com/sponsors/tristandatascience';
 // ------------------------------------------------------------------
-const DONATION_URL = '';
+const DONATION_URL = 'https://ko-fi.com/tristanlozahic';
 
 const HOST_TO_PLATFORM = {
   'copilot.com': 'copilot',
