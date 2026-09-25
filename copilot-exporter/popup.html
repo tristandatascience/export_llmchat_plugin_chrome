@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="logo">⬇</div>
+    <div>
+      <h1>AI Chat Export</h1>
+      <p class="subtitle" id="subtitle">Copilot · ChatGPT · Claude · Gemini</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="platform-row">
+      <label for="platform" data-i18n="platform">Plateforme</label>
+      <select id="platform">
+        <option value="auto" data-i18n="autoDetect">Détection automatique</option>
+        <option value="copilot">Copilot</option>
+        <option value="chatgpt">ChatGPT</option>
+        <option value="claude">Claude</option>
+        <option value="gemini">Gemini</option>
+      </select>
+    </div>
+
+    <div class="platform-row">
+      <label for="lang" data-i18n="language">Langue</label>
+      <select id="lang">
+        <option value="auto" data-i18n="autoDetect">Détection automatique</option>
+        <option value="fr">Français</option>
+        <option value="en">English</option>
+      </select>
+    </div>
+
+    <p id="detected" class="detected" hidden></p>
+
+    <button id="btn-md" class="primary">
+      <span class="ico">📝</span> <span data-i18n="mdBtn">Markdown (.md)</span>
+    </button>
+    <button id="btn-pdf" class="primary">
+      <span class="ico">📕</span> <span data-i18n="pdfBtn">PDF (.pdf)</span>
+    </button>
+    <button id="btn-txt" class="primary">
+      <span class="ico">📄</span> <span data-i18n="txtBtn">Texte (.txt)</span>
+    </button>
+    <button id="btn-copy" class="secondary">
+      <span class="ico">📋</span> <span data-i18n="copyBtn">Copier le Markdown</span>
+    </button>
+
+    <div class="options">
+      <label>
+        <input type="checkbox" id="opt-scroll" checked>
+        <span data-i18n="scrollOpt">Défiler pour tout charger (historique long)</span>
+      </label>
+      <label>
+        <input type="checkbox" id="opt-header" checked>
+        <span data-i18n="headerOpt">Inclure l'en-tête (date, URL, titre)</span>
+      </label>
+    </div>
+
+    <div id="status" class="status" hidden></div>
+  </main>
+
+  <footer data-i18n="footer">
+    100 % local — aucune donnée ne quitte votre navigateur.
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

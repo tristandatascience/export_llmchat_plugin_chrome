@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "AI Chat Export",
+  "version": "2.2.0",
+  "description": "Export full conversations from Copilot, ChatGPT, Claude or Gemini to Markdown, PDF or text files. FR/EN. 100% local — no data sent.",
+  "author": "plugin_copilot",
+  "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Export the conversation (Copilot, ChatGPT, Claude, Gemini)",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://copilot.com/*",
+        "https://www.copilot.com/*",
+        "https://copilot.microsoft.com/*",
+        "https://m365.cloud.microsoft/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["pdf.js", "content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}

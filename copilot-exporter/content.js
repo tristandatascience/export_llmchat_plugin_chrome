@@ -1,0 +1,915 @@
+/**
+ * AI Chat Export — content script
+ * Extrait la conversation affichée et l'exporte en Markdown ou texte brut.
+ *
+ * Plateformes prises en charge :
+ *   - Copilot  : copilot.com, copilot.microsoft.com, m365.cloud.microsoft
+ *                (API interne en priorité, puis DOM)
+ *   - ChatGPT  : chatgpt.com, chat.openai.com
+ *   - Claude   : claude.ai
+ *   - Gemini   : gemini.google.com
+ *
+ * Chaîne d'extraction : spécifique à la plateforme (messages identifiés
+ * un par un, convertis en Markdown) puis, en dernier recours, export brut
+ * du texte de la zone de conversation.
+ *
+ * 100 % local : rien ne quitte le navigateur.
+ */
+
+(() => {
+  if (window.__copilotExportLoaded) return;
+  window.__copilotExportLoaded = true;
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ==================================================================
+  // Plateformes
+  // ==================================================================
+  const PLATFORMS = {
+    copilot: {
+      label: 'Copilot',
+      assistantName: 'Copilot',
+      filePrefix: 'copilot',
+      hosts: ['copilot.com', 'www.copilot.com', 'copilot.microsoft.com', 'm365.cloud.microsoft'],
+      apiFirst: true,
+      extractors: ['copilotModern', 'copilotCib']
+    },
+    chatgpt: {
+      label: 'ChatGPT',
+      assistantName: 'ChatGPT',
+      filePrefix: 'chatgpt',
+      hosts: ['chatgpt.com', 'chat.openai.com'],
+      extractors: ['chatgpt']
+    },
+    claude: {
+      label: 'Claude',
+      assistantName: 'Claude',
+      filePrefix: 'claude',
+      hosts: ['claude.ai'],
+      extractors: ['claude']
+    },
+    gemini: {
+      label: 'Gemini',
+      assistantName: 'Gemini',
+      filePrefix: 'gemini',
+      hosts: ['gemini.google.com'],
+      extractors: ['gemini']
+    }
+  };
+
+  function detectPlatform(hostname) {
+    for (const [key, platform] of Object.entries(PLATFORMS)) {
+      if (platform.hosts.includes(hostname)) return key;
+    }
+    return null;
+  }
+
+  // ==================================================================
+  // Internationalisation (français / anglais)
+  // ==================================================================
+  const STRINGS = {
+    fr: {
+      you: 'Vous',
+      exportedFrom: (date, platform) => `Exportée le ${date} depuis ${platform}`,
+      exportedOn: (date) => `Exportée le ${date}`,
+      thoughts: (name) => `Réflexions de ${name}`,
+      sources: '**Sources :**',
+      prompt: (p) => `*Prompt : ${p}*`,
+      conversationTitle: (platform) => `Conversation ${platform}`,
+      rawTitle: (platform) => `Conversation ${platform} (export brut)`,
+      rawTitleTxt: (platform) => `CONVERSATION ${platform.toUpperCase()} (EXPORT BRUT)`,
+      rawNote: "L'extraction structurée n'a pas trouvé les messages : voici le texte de la conversation tel qu'affiché.",
+      rawBlock: (platform) => `Export brut de la conversation ${platform}`,
+      unsupported: "Cet onglet n'est pas une conversation prise en charge (Copilot, ChatGPT, Claude ou Gemini).",
+      pdfFailed: "La génération du PDF a échoué. Utilisez l'export Markdown en attendant."
+    },
+    en: {
+      you: 'You',
+      exportedFrom: (date, platform) => `Exported on ${date} from ${platform}`,
+      exportedOn: (date) => `Exported on ${date}`,
+      thoughts: (name) => `${name}'s thoughts`,
+      sources: '**Sources:**',
+      prompt: (p) => `*Prompt: ${p}*`,
+      conversationTitle: (platform) => `Conversation with ${platform}`,
+      rawTitle: (platform) => `Conversation with ${platform} (raw export)`,
+      rawTitleTxt: (platform) => `CONVERSATION WITH ${platform.toUpperCase()} (RAW EXPORT)`,
+      rawNote: 'Structured extraction could not find the messages: here is the text of the conversation as displayed.',
+      rawBlock: (platform) => `Raw export of the ${platform} conversation`,
+      unsupported: 'This tab is not a supported conversation (Copilot, ChatGPT, Claude or Gemini).',
+      pdfFailed: 'PDF generation failed. Use the Markdown export in the meantime.'
+    }
+  };
+
+  // Langue effective : choix explicite, sinon langue du navigateur
+  // (anglais par défaut pour tout navigateur non francophone).
+  function resolveLang(pref) {
+    if (pref === 'fr' || pref === 'en') return pref;
+    return (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  }
+
+  // ==================================================================
+  // Configuration des sélecteurs — adaptable si une interface change.
+  // ==================================================================
+  const SELECTORS = {
+    // --- Copilot : nouveau DOM React ---
+    copilotModern: {
+      messageSelector: '.group\\/user-message, .group\\/ai-message',
+      userClass: 'group/user-message',
+      userContent: '[data-content="user-message"]',
+      assistantContent: '.group\\/ai-message-item',
+      noiseNodes: '[data-testid="message-item-reactions"], button, [aria-hidden="true"]'
+    },
+    // --- Copilot : API interne ---
+    copilotApi: {
+      urlPattern: /\/(?:chat\/conversation|chats)\/([A-Za-z0-9_-]+)/i,
+      version: '2',
+      timeoutMs: 12000
+    },
+    // --- Copilot : ancienne interface (composants cib-*) ---
+    copilotCib: {
+      turnSelectors: ['cib-chat-turn'],
+      userSelectors: ['cib-user-message', 'cib-shared-user-message'],
+      userContentSelectors: ['.content', '.user-message'],
+      assistantSelectors: ['cib-assistant-message'],
+      assistantContentSelectors: ['.ac-container', '.content', 'cib-message']
+    },
+    // --- ChatGPT ---
+    chatgpt: {
+      turnSelector: "section[data-testid^='conversation-turn-']",
+      userContent: '[data-message-author-role="user"]',
+      assistantContent: '[data-message-author-role="assistant"] .markdown, .markdown'
+    },
+    // --- Claude ---
+    claude: {
+      // L'ordre du DOM est l'ordre chronologique de la conversation.
+      messageSelector: ".font-claude-response:not(#markdown-artifact), [data-testid='user-message']",
+      userSelector: "[data-testid='user-message']",
+      userContent: '.font-user-message',
+      // Blocs de « réflexions » et artefacts à écarter de la réponse
+      assistantNoise: '.artifact-block-cell, [data-testid="thinking"]'
+    },
+    // --- Gemini ---
+    gemini: {
+      messageSelector: 'user-query, model-response',
+      userTag: 'user-query',
+      // Essayés dans l'ordre : .query-text est plus précis que le conteneur.
+      userContent: '.query-text',
+      userContentFallback: 'div.query-content',
+      assistantContent: 'message-content',
+      assistantMarkdown: '.markdown'
+    }
+  };
+
+  // Petites lignes d'interface à retirer en fin de message (mode texte brut).
+  const NOISE_WORDS = [
+    'copier', 'copy', 'copier le code', 'copy code', 'régénérer', 'regenerate',
+    'répondre', 'reply', 'modifier', 'edit', 'réessayer', 'retry',
+    'bonne réponse', 'good response', 'mauvaise réponse', 'bad response',
+    'partager', 'share', 'plus', 'more', 'voir plus', 'see more',
+    'exécuter', 'run', 'exécuter le code', 'you said', 'chatgpt said',
+    'afficher l\'historique des conversations', 'nouvelle conversation',
+    'new conversation'
+  ];
+
+  // ==================================================================
+  // Traversée du DOM y compris les shadow roots
+  // ==================================================================
+  function* iterTree(root) {
+    const children = root.children || [];
+    for (const child of children) {
+      yield child;
+      yield* iterTree(child);
+      if (child.shadowRoot) yield* iterTree(child.shadowRoot);
+    }
+  }
+
+  function deepQueryAll(selector, root) {
+    const base = root || document.body;
+    const out = [];
+    try {
+      for (const el of iterTree(base)) {
+        if (typeof el.matches === 'function' && el.matches(selector)) out.push(el);
+      }
+    } catch (_) { /* arbre détaché */ }
+    return out;
+  }
+
+  function deepQueryFirst(selectors, root) {
+    for (const sel of selectors) {
+      const found = deepQueryAll(sel, root)[0];
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // innerText d'un élément en incluant le contenu des shadow DOM imbriqués.
+  function deepInnerText(node) {
+    if (!node) return '';
+    if (node instanceof ShadowRoot) {
+      return Array.from(node.children).map(deepInnerText).filter(Boolean).join('\n');
+    }
+    let text = '';
+    try { text = node.innerText || node.textContent || ''; } catch (_) { text = ''; }
+    for (const el of node.querySelectorAll('*')) {
+      if (el.shadowRoot) text += '\n' + deepInnerText(el.shadowRoot);
+    }
+    return text;
+  }
+
+  // ==================================================================
+  // Conversion DOM -> Markdown (best effort)
+  // ==================================================================
+  function inlineMd(node) {
+    let s = '';
+    for (const n of Array.from(node.childNodes)) {
+      if (n.nodeType === Node.TEXT_NODE) {
+        s += n.nodeValue.replace(/\s+/g, ' ');
+      } else if (n.nodeType === Node.ELEMENT_NODE) {
+        const tag = n.tagName.toLowerCase();
+        if (tag === 'br') { s += '\n'; }
+        else if (tag === 'strong' || tag === 'b') {
+          const t = inlineMd(n).trim();
+          if (t) s += '**' + t + '**';
+        }
+        else if (tag === 'em' || tag === 'i') {
+          const t = inlineMd(n).trim();
+          if (t) s += '*' + t + '*';
+        }
+        else if (tag === 'code') {
+          s += '`' + (n.textContent || '').trim() + '`';
+        }
+        else if (tag === 'a') {
+          const t = inlineMd(n).trim() || (n.getAttribute('href') || '');
+          const href = n.getAttribute('href') || '';
+          s += t ? '[' + t + '](' + href + ')' : '';
+        }
+        else if (tag === 'img') {
+          const src = n.getAttribute('src') || '';
+          const alt = n.getAttribute('alt') || 'image';
+          if (src && !src.startsWith('data:')) s += '![' + alt + '](' + src + ')';
+        }
+        else if (tag === 'svg' || tag === 'style' || tag === 'script' || tag === 'button') {
+          // icônes et contrôles : ignorés
+        }
+        else if (n.shadowRoot && n.children.length === 0) {
+          s += deepInnerText(n.shadowRoot);
+        }
+        else {
+          s += inlineMd(n);
+        }
+      }
+    }
+    return s;
+  }
+
+  function guessLang(pre) {
+    const code = pre.querySelector('code');
+    const cls = code ? (code.getAttribute('class') || '') : (pre.getAttribute('class') || '');
+    const m = cls.match(/(?:language|lang)-([a-z0-9+#-]+)/i);
+    if (m) return m[1].toLowerCase();
+    // Gemini : libellé de langue dans l'en-tête du bloc de code
+    if (typeof pre.closest === 'function') {
+      const block = pre.closest('.code-block');
+      const deco = block ? block.querySelector('.code-block-decoration span') : null;
+      if (deco) {
+        const label = (deco.textContent || '').trim().toLowerCase();
+        if (label && !/copy|copier/.test(label)) return label;
+      }
+    }
+    return '';
+  }
+
+  function listMd(list, ordered, depth) {
+    const pad = '  '.repeat(depth);
+    const lines = [];
+    let index = 1;
+    for (const li of Array.from(list.children)) {
+      if (!li.tagName || li.tagName.toLowerCase() !== 'li') continue;
+      const subLists = Array.from(li.children).filter((c) =>
+        /^u[lo]l$/.test(c.tagName.toLowerCase())
+      );
+      const clone = li.cloneNode(true);
+      for (const sl of Array.from(clone.children)) {
+        if (/^u[lo]l$/.test(sl.tagName.toLowerCase())) sl.remove();
+      }
+      const text = inlineMd(clone).replace(/\s+/g, ' ').trim();
+      lines.push(pad + (ordered ? index + '. ' : '- ') + text);
+      for (const sl of subLists) lines.push(listMd(sl, sl.tagName.toLowerCase() === 'ol', depth + 1));
+      index++;
+    }
+    return lines.join('\n');
+  }
+
+  function tableMd(table) {
+    const rows = [];
+    for (const tr of Array.from(table.querySelectorAll('tr'))) {
+      const cells = Array.from(tr.querySelectorAll('th,td')).map((c) =>
+        inlineMd(c).replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|')
+      );
+      rows.push('| ' + cells.join(' | ') + ' |');
+    }
+    if (rows.length > 0 && table.querySelector('th')) {
+      const cols = table.querySelector('tr').querySelectorAll('th,td').length;
+      rows.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+    }
+    return rows.join('\n');
+  }
+
+  function blockMd(node, depth) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return (node.nodeValue || '').trim();
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const tag = node.tagName.toLowerCase();
+
+    if (node.shadowRoot && node.children.length === 0) {
+      return deepInnerText(node.shadowRoot).trim();
+    }
+
+    switch (tag) {
+      case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6': {
+        const level = parseInt(tag[1], 10);
+        return '#'.repeat(level) + ' ' + inlineMd(node).trim();
+      }
+      case 'p': {
+        const t = inlineMd(node).trim();
+        return t;
+      }
+      case 'pre': {
+        const code = (node.textContent || '').replace(/\n+$/, '');
+        const lang = guessLang(node);
+        return '```' + lang + '\n' + code + '\n```';
+      }
+      case 'ul': return listMd(node, false, depth || 0);
+      case 'ol': return listMd(node, true, depth || 0);
+      case 'blockquote': {
+        const inner = childrenMd(node).trim();
+        return inner.split('\n').map((l) => '> ' + l).join('\n');
+      }
+      case 'table': return tableMd(node);
+      case 'hr': return '---';
+      case 'br': return '';
+      case 'svg': case 'img': case 'style': case 'script': case 'button':
+      case 'cib-attachment-chips': case 'cib-shared-conversation-footer-bar':
+        return '';
+      default:
+        return childrenMd(node, depth);
+    }
+  }
+
+  function childrenMd(el, depth) {
+    const parts = [];
+    for (const n of Array.from(el.childNodes)) {
+      const md = blockMd(n, depth);
+      if (md && md.trim()) parts.push(md.trim());
+    }
+    return parts.join('\n\n');
+  }
+
+  function domToMarkdown(el) {
+    if (!el) return '';
+    let md = '';
+    try { md = childrenMd(el, 0); } catch (_) { md = ''; }
+    if (!md || !md.trim()) md = deepInnerText(el).trim();
+    return md
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  // Retire les petites lignes d'interface (boutons Copier, etc.) en fin de texte.
+  function stripNoise(text) {
+    const lines = text.split('\n');
+    while (lines.length > 0) {
+      const last = lines[lines.length - 1].trim().toLowerCase().replace(/[.:…]+$/, '');
+      if (last === '' || NOISE_WORDS.includes(last)) lines.pop();
+      else break;
+    }
+    return lines.join('\n').trim();
+  }
+
+  // Copie nettoyée d'un contenu : boutons, icônes et blocs de bruit retirés.
+  function cleanClone(el, noiseSelector) {
+    const clone = el.cloneNode(true);
+    const selectors = ['button', 'svg', '[aria-hidden="true"]'];
+    if (noiseSelector) selectors.push(noiseSelector);
+    for (const sel of selectors) {
+      for (const n of clone.querySelectorAll(sel)) n.remove();
+    }
+    return clone;
+  }
+
+  // ==================================================================
+  // Extracteurs Copilot
+  // ==================================================================
+
+  // API interne : historique complet en JSON (réflexions, images, sources).
+  async function extractCopilotApi(T) {
+    const cfg = SELECTORS.copilotApi;
+    const match = location.pathname.match(cfg.urlPattern);
+    if (!match) return null;
+    const chatId = match[1];
+    const base = `${location.origin}/c/api`;
+    const historyUrl =
+      `${base}/conversations/${encodeURIComponent(chatId)}/history?api-version=${cfg.version}`;
+
+    const fetchWithTimeout = (url, options) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), cfg.timeoutMs);
+      return fetch(url, { credentials: 'include', ...options, signal: controller.signal })
+        .finally(() => clearTimeout(timer));
+    };
+
+    let res;
+    try {
+      res = await fetchWithTimeout(historyUrl, { headers: { accept: 'application/json' } });
+      if (!res.ok) {
+        // Réchauffe la session puis réessaie une fois.
+        try {
+          await fetchWithTimeout(`${base}/start`, { method: 'POST' });
+        } catch (_) { /* la relance suffit peut-être */ }
+        res = await fetchWithTimeout(historyUrl, { headers: { accept: 'application/json' } });
+      }
+    } catch (_) {
+      return null;
+    }
+    if (!res.ok) return null;
+
+    let data;
+    try { data = await res.json(); } catch (_) { return null; }
+    const results = Array.isArray(data && data.results) ? data.results : [];
+    if (results.length === 0) return null;
+
+    results.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    const messages = [];
+    for (const msg of results) {
+      const authorType = msg && msg.author && msg.author.type;
+      const role = authorType === 'human' ? 'user' : authorType === 'ai' ? 'assistant' : null;
+      if (!role) continue;
+      const parts = Array.isArray(msg && msg.parts) ? msg.parts : [];
+
+      let body = '';
+      let thoughts = '';
+      const citations = [];
+      for (const part of parts) {
+        if (!part) continue;
+        if (part.type === 'text' && part.text) {
+          body += (body ? '\n\n' : '') + part.text;
+        } else if (part.type === 'image' && part.url) {
+          body += `\n\n![image](${part.url})`;
+          if (part.prompt) body += '\n\n' + T.prompt(part.prompt);
+        } else if (part.type === 'citation' && part.url) {
+          citations.push(part.title ? `[${part.title}](${part.url})` : part.url);
+        } else if (part.type === 'chainOfThought' && part.text) {
+          thoughts += (thoughts ? '\n\n' : '') + part.text;
+        }
+      }
+
+      let text = '';
+      if (role === 'assistant' && thoughts) {
+        text += '> 💭 **' + T.thoughts('Copilot') + '**\n> '
+          + thoughts.split('\n').join('\n> ') + '\n\n';
+      }
+      text += body.trim();
+      if (citations.length) text += '\n\n' + T.sources + ' ' + citations.join(' · ');
+      if (text.trim()) messages.push({ role, text: text.trim() });
+    }
+    return messages.length > 0 ? messages : null;
+  }
+
+  // Nouveau DOM React de copilot.com.
+  function extractCopilotModern() {
+    const cfg = SELECTORS.copilotModern;
+    const nodes = document.querySelectorAll(cfg.messageSelector);
+    const messages = [];
+    for (const node of nodes) {
+      if (node.classList.contains(cfg.userClass)) {
+        const content = node.querySelector(cfg.userContent) || node;
+        const text = stripNoise(deepInnerText(content).trim());
+        if (text) messages.push({ role: 'user', text });
+      } else {
+        const content = node.querySelector(cfg.assistantContent) || node;
+        const clone = cleanClone(content, cfg.noiseNodes);
+        let text = '';
+        try { text = domToMarkdown(clone); } catch (_) { text = ''; }
+        if (!text) text = stripNoise(deepInnerText(content).trim());
+        if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
+      }
+    }
+    return messages;
+  }
+
+  // Ancienne interface Bing/Copilot (composants cib-*, shadow DOM inclus).
+  function extractCopilotCib() {
+    const cfg = SELECTORS.copilotCib;
+    const messages = [];
+    const turns = deepQueryAll(cfg.turnSelectors.join(', '));
+    for (const turn of turns) {
+      const userMsg = deepQueryFirst(cfg.userSelectors, turn);
+      if (userMsg) {
+        const content = deepQueryFirst(cfg.userContentSelectors, userMsg) || userMsg;
+        const text = stripNoise(deepInnerText(content).trim());
+        if (text) messages.push({ role: 'user', text });
+      }
+      const asst = deepQueryFirst(cfg.assistantSelectors, turn);
+      if (asst) {
+        const container = deepQueryFirst(cfg.assistantContentSelectors, asst);
+        let text = container ? domToMarkdown(container) : '';
+        if (!text || !text.trim()) {
+          text = stripNoise(deepInnerText(asst).trim());
+          const lines = text.split('\n');
+          if (lines.length > 1 && /^copilot$/i.test(lines[0].trim())) lines.shift();
+          text = stripNoise(lines.join('\n'));
+        }
+        if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
+      }
+    }
+    return messages;
+  }
+
+  // ==================================================================
+  // Extracteur ChatGPT
+  // ==================================================================
+  function extractChatGPT() {
+    const cfg = SELECTORS.chatgpt;
+    const turns = document.querySelectorAll(cfg.turnSelector);
+    const messages = [];
+    for (const turn of turns) {
+      const isUser =
+        turn.getAttribute('data-turn') === 'user' ||
+        !!turn.querySelector(cfg.userContent);
+      if (isUser) {
+        const content = turn.querySelector(cfg.userContent) || turn;
+        const text = stripNoise(deepInnerText(content).trim());
+        if (text) messages.push({ role: 'user', text });
+      } else {
+        let text = '';
+        for (const md of turn.querySelectorAll(cfg.assistantContent)) {
+          const part = domToMarkdown(cleanClone(md));
+          if (part) text += (text ? '\n\n' : '') + part;
+        }
+        if (!text) {
+          const content = turn.querySelector('.whitespace-pre-wrap') || turn;
+          text = deepInnerText(content).trim();
+        }
+        if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
+      }
+    }
+    return messages;
+  }
+
+  // ==================================================================
+  // Extracteur Claude
+  // ==================================================================
+  function extractClaude() {
+    const cfg = SELECTORS.claude;
+    const nodes = document.querySelectorAll(cfg.messageSelector);
+    const messages = [];
+    for (const node of nodes) {
+      if (node.matches(cfg.userSelector)) {
+        const content = node.querySelector(cfg.userContent) || node;
+        const text = stripNoise(deepInnerText(content).trim());
+        if (text) messages.push({ role: 'user', text });
+      } else {
+        // Réponse : retire réflexions (« thinking »), artefacts et contrôles.
+        const clone = node.cloneNode(true);
+        for (const n of clone.querySelectorAll(cfg.assistantNoise)) n.remove();
+        // Les blocs de réflexion de Claude sont des enfants directs à
+        // l'animation repliable (classe transition-all) : on les écarte.
+        for (const child of Array.from(clone.children)) {
+          if (child.classList && child.classList.contains('transition-all')) child.remove();
+        }
+        let text = '';
+        try { text = domToMarkdown(clone); } catch (_) { text = ''; }
+        if (!text) text = stripNoise(deepInnerText(node).trim());
+        if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
+      }
+    }
+    return messages;
+  }
+
+  // ==================================================================
+  // Extracteur Gemini
+  // ==================================================================
+  function extractGemini() {
+    const cfg = SELECTORS.gemini;
+    const nodes = document.querySelectorAll(cfg.messageSelector);
+    const messages = [];
+    for (const node of nodes) {
+      if (node.tagName.toLowerCase() === cfg.userTag) {
+        const content =
+          node.querySelector(cfg.userContent) ||
+          node.querySelector(cfg.userContentFallback) ||
+          node;
+        const text = stripNoise(deepInnerText(content).trim().replace(/^you said\s+/i, ''));
+        if (text) messages.push({ role: 'user', text });
+      } else {
+        const container = node.querySelector(cfg.assistantContent) || node;
+        let text = '';
+        for (const md of container.querySelectorAll(cfg.assistantMarkdown)) {
+          const part = domToMarkdown(cleanClone(md));
+          if (part) text += (text ? '\n\n' : '') + part;
+        }
+        if (!text) text = stripNoise(deepInnerText(container).trim());
+        if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
+      }
+    }
+    return messages;
+  }
+
+  const EXTRACTOR_FUNCTIONS = {
+    copilotModern: extractCopilotModern,
+    copilotCib: extractCopilotCib,
+    chatgpt: extractChatGPT,
+    claude: extractClaude,
+    gemini: extractGemini
+  };
+
+  // ==================================================================
+  // Repérage de la zone de conversation (mode brut) + chargement complet
+  // ==================================================================
+  function findScroller() {
+    let best = null;
+    let bestArea = 0;
+    const all = document.querySelectorAll('body *');
+    for (const el of all) {
+      const st = getComputedStyle(el);
+      const oy = st.overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 40) {
+        const area = el.clientHeight * el.clientWidth;
+        if (area > bestArea) { bestArea = area; best = el; }
+      }
+    }
+    if (!best && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight + 40) {
+      best = document.scrollingElement;
+    }
+    return best;
+  }
+
+  function conversationRoot() {
+    return (
+      document.querySelector('[data-test-id="chat-history-container"]') ||
+      document.querySelector('#chat-history') ||
+      document.querySelector('#conversation') ||
+      document.querySelector('main') ||
+      document.querySelector('[role="main"]') ||
+      findScroller() ||
+      document.body
+    );
+  }
+
+  // Défilement pour forcer le chargement de l'historique complet.
+  async function ensureFullyLoaded() {
+    const scroller = findScroller();
+    const target = scroller && scroller !== document.scrollingElement ? scroller : null;
+    const getTop = () => (target ? target.scrollTop : window.scrollY);
+    const setTop = (v) => { if (target) target.scrollTop = v; else window.scrollTo(0, v); };
+    const getHeight = () => (target ? target.scrollHeight : document.body.scrollHeight);
+
+    const before = getTop();
+    let last = -1;
+    let stable = 0;
+    for (let i = 0; i < 40 && stable < 4; i++) {
+      setTop(0);
+      await sleep(250);
+      const h = getHeight();
+      if (h === last) stable++; else { stable = 0; last = h; }
+    }
+    setTop(before);
+    await sleep(200);
+  }
+
+  // ==================================================================
+  // Mise en forme des exports
+  // ==================================================================
+  function fileBaseName(platform) {
+    const raw = (document.title || `conversation ${platform.label}`)
+      .replace(/[\\/:*?"<>|]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(new RegExp(`[-–— ]*${platform.label}.*$`, 'i'), '')
+      .trim()
+      .slice(0, 40);
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+    const safe = raw.replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'conversation';
+    return `${platform.filePrefix}-${safe}-${stamp}`;
+  }
+
+  function buildMarkdown(messages, meta, includeHeader) {
+    const parts = [];
+    if (includeHeader) {
+      parts.push(`# ${meta.title || meta.fallbackTitle}`);
+      parts.push(`> ${meta.exportLine}  \n> ${meta.url}`);
+      parts.push('---');
+      parts.push('');
+    }
+    for (const m of messages) {
+      parts.push(m.role === 'user' ? `## 👤 ${meta.youLabel}` : `## 🤖 ${meta.assistantName}`);
+      parts.push('');
+      if (m.role === 'user') {
+        parts.push(m.text.split('\n').map((l) => '> ' + l).join('\n'));
+      } else {
+        parts.push(m.text);
+      }
+      parts.push('');
+      parts.push('---');
+      parts.push('');
+    }
+    return parts.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  }
+
+  function buildText(messages, meta, includeHeader) {
+    const bar = '='.repeat(64);
+    const lines = [];
+    if (includeHeader) {
+      lines.push(bar);
+      lines.push(`CONVERSATION ${meta.platform.toUpperCase()} — ${meta.title || ''}`);
+      lines.push(meta.exportLineTxt);
+      lines.push(meta.url);
+      lines.push(bar);
+      lines.push('');
+    }
+    for (const m of messages) {
+      const who = m.role === 'user' ? meta.youLabel.toUpperCase() : meta.assistantName.toUpperCase();
+      lines.push('-'.repeat(64));
+      lines.push(`[${who}]`);
+      lines.push('-'.repeat(64));
+      lines.push(m.text);
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  function buildRaw(format, meta) {
+    const root = conversationRoot();
+    let text = deepInnerText(root).trim();
+    text = text.replace(/\n{3,}/g, '\n\n');
+    if (format === 'md') {
+      const header = [
+        `# ${meta.rawTitle}`,
+        `> ${meta.exportLine}  \n> ${meta.url}`,
+        `> ${meta.rawNote}`,
+        '',
+        '---',
+        ''
+      ].join('\n');
+      return header + text + '\n';
+    }
+    return [
+      '='.repeat(64),
+      meta.rawTitleTxt,
+      meta.exportLineTxt,
+      meta.url,
+      '='.repeat(64),
+      '',
+      text
+    ].join('\n');
+  }
+
+  // ==================================================================
+  // Téléchargement (Blob + <a download>) — texte ou binaire
+  // ==================================================================
+  function downloadFile(data, filename, mime) {
+    const isText = typeof data === 'string';
+    const blob = new Blob([data], { type: isText ? mime + ';charset=utf-8' : mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.documentElement.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, 60_000);
+  }
+
+  // ==================================================================
+  // Pipeline d'export
+  // ==================================================================
+  async function runExport(format, options) {
+    const forced = options.platform && PLATFORMS[options.platform]
+      ? options.platform
+      : null;
+    const key = forced || detectPlatform(location.hostname);
+    const platform = key ? PLATFORMS[key] : null;
+    const T = STRINGS[resolveLang(options.lang)];
+    if (!platform) {
+      return { ok: false, error: T.unsupported };
+    }
+
+    const meta = {
+      platform: platform.label,
+      assistantName: platform.assistantName,
+      title: (document.title || '').trim(),
+      date: new Date().toLocaleString(resolveLang(options.lang) === 'en' ? 'en-GB' : 'fr-FR'),
+      url: location.href
+    };
+    // Chaînes localisées portées par meta pour toutes les mises en forme
+    meta.youLabel = T.you;
+    meta.fallbackTitle = T.conversationTitle(platform.label);
+    meta.exportLine = T.exportedFrom(meta.date, platform.label);
+    meta.exportLineTxt = T.exportedOn(meta.date);
+    meta.rawTitle = T.rawTitle(platform.label);
+    meta.rawTitleTxt = T.rawTitleTxt(platform.label);
+    meta.rawNote = T.rawNote;
+    meta.rawBlock = T.rawBlock(platform.label);
+
+    // Stratégie 1 : API interne (Copilot uniquement) — pas besoin de défiler.
+    let messages = null;
+    let source = 'api';
+    if (platform.apiFirst) {
+      try { messages = await extractCopilotApi(T); } catch (_) { messages = null; }
+    }
+
+    // Stratégie 2 : extracteurs DOM de la plateforme.
+    if (!messages || messages.length === 0) {
+      source = 'dom';
+      if (options.scroll) {
+        try { await ensureFullyLoaded(); } catch (_) { /* non bloquant */ }
+      }
+      for (const name of platform.extractors) {
+        const fn = EXTRACTOR_FUNCTIONS[name];
+        if (!fn) continue;
+        try {
+          messages = fn() || [];
+        } catch (_) {
+          messages = [];
+        }
+        if (messages.length > 0) break;
+      }
+    }
+
+    let mode;
+    let text;
+    if (messages && messages.length > 0) {
+      mode = 'structured';
+      text = format === 'txt'
+        ? buildText(messages, meta, options.header !== false)
+        : buildMarkdown(messages, meta, options.header !== false);
+    } else {
+      mode = 'raw';
+      source = 'raw';
+      text = buildRaw(format, meta);
+    }
+
+    let filename = null;
+    if (format === 'pdf') {
+      filename = `${fileBaseName(platform)}.pdf`;
+      let pdfMessages = messages;
+      if (mode === 'raw' && text) {
+        pdfMessages = [{
+          role: 'assistant',
+          text: `**${meta.rawBlock}**\n\n${text}`
+        }];
+      }
+      let bytes = null;
+      try {
+        bytes = globalThis.__AIChatExportPdf
+          ? globalThis.__AIChatExportPdf.conversation(pdfMessages, meta, options.header !== false)
+          : null;
+      } catch (e) {
+        bytes = null;
+      }
+      if (!bytes || !bytes.length) {
+        return { ok: false, error: T.pdfFailed };
+      }
+      downloadFile(bytes, filename, 'application/pdf');
+    } else if (format === 'md' || format === 'txt') {
+      filename = `${fileBaseName(platform)}.${format}`;
+      downloadFile(text, filename, format === 'md' ? 'text/markdown' : 'text/plain');
+    }
+
+    return {
+      ok: true,
+      platform: key,
+      platformLabel: platform.label,
+      mode,
+      source,
+      count: messages ? messages.length : 0,
+      filename,
+      text,
+      title: meta.title
+    };
+  }
+
+  // ==================================================================
+  // Messagerie avec le popup
+  // ==================================================================
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'COPEX_PING') {
+      sendResponse({ ok: true, platform: detectPlatform(location.hostname) });
+      return;
+    }
+    if (msg.type === 'COPEX_EXPORT') {
+      runExport(msg.format || 'md', msg.options || {})
+        .then(sendResponse)
+        .catch((e) => sendResponse({ ok: false, error: String(e && e.message ? e.message : e) }));
+      return true; // réponse asynchrone
+    }
+  });
+})();
