@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Copilot · ChatGPT · Claude · Gemini → Markdown · PDF · TXT**
+**Copilot · ChatGPT · Claude · Gemini → Markdown · PDF · TXT — texte + images**
 
 Extension Chrome, 100 % locale — aucune donnée ne quitte votre navigateur.
 Chrome extension, 100% local — no data ever leaves your browser.
@@ -56,18 +56,23 @@ sur Ko-fi](https://ko-fi.com/tristanlozahic).
 Le fichier arrive dans vos **Téléchargements** :
 `<plateforme>-<titre>-<AAAA-MM-JJ_HH-MM-SS>.<ext>`.
 
-**Images** : les images présentes dans la conversation (générées par l'IA ou
-envoyées par vous) sont incluses dans l'export :
+**Images** ✨ : l'extension **capture aussi les images** de la conversation
+(générées par l'IA ou envoyées par vous), **à leur place dans le fil** :
 - **Markdown / TXT** : téléchargées en fichiers séparés
-  (`<fichier>-img01.png`, …) et référencées clairement dans le texte
+  (`<fichier>-img01.png`, …) et référencées clairement dans le texte,
+  dans le message qui les contient
   (`![Image 1 — nom-du-fichier.png](…)` en Markdown,
   `[Image 1 — nom-du-fichier.png]` en TXT) — placez le tout dans un même
   dossier et l'export est autonome ;
-- **PDF** : embarquées directement dans le document, avec leur nom en
-  légende.
-Chrome peut demander une confirmation « Télécharger plusieurs fichiers »
-(une fois par site). Si une image ne peut pas être récupérée (CORS), son URL
-d'origine est conservée dans le texte. Option désactivable dans le popup.
+- **PDF** : embarquées directement dans le document au bon endroit dans la
+  conversation, avec leur nom en légende.
+Chaque image est rattachée à son message (conteneurs de la plateforme ou
+marqueurs de position), récupérée directement depuis la page affichée
+(fetch, puis lecture de l'élément lui-même pour les images `blob:` et de
+même origine) et convertie en JPEG pour le PDF. Chrome peut demander une
+confirmation « Télécharger plusieurs fichiers » (une fois par site). Si une
+image ne peut vraiment pas être récupérée (CORS), son URL d'origine est
+conservée dans le texte. Option désactivable dans le popup.
 
 ### Comment ça marche
 
@@ -150,16 +155,20 @@ Ko-fi](https://ko-fi.com/tristanlozahic).
 The file lands in your **Downloads** folder:
 `<platform>-<title>-<YYYY-MM-DD_HH-MM-SS>.<ext>`.
 
-**Images**: images found in the conversation (AI-generated or uploaded by
-you) are included in the export:
+**Images** ✨: the extension **also captures images** found in the
+conversation (AI-generated or uploaded by you), **at their place in the
+thread**:
 - **Markdown / TXT**: downloaded as separate files (`<file>-img01.png`, …)
-  and clearly referenced by name in the text — keep everything in one folder
-  and the export is self-contained;
-- **PDF**: embedded directly inside the document, with the file name as
-  caption.
-Chrome may ask a one-time "Download multiple files" confirmation per site.
-If an image cannot be fetched (CORS, expired session), its original URL is
-kept in the text. Can be disabled in the popup.
+  and clearly referenced by name, inside the message that contains them —
+  keep everything in one folder and the export is self-contained;
+- **PDF**: embedded directly inside the document at the right position in
+  the conversation, with the file name as caption.
+Each image is anchored to its own message (platform containers or position
+markers), grabbed straight from the rendered page (fetch, then reading the
+element itself for `blob:` and same-origin images) and converted to JPEG
+for the PDF. Chrome may ask a one-time "Download multiple files"
+confirmation per site. If an image truly cannot be fetched (CORS), its
+original URL is kept in the text. Can be disabled in the popup.
 
 ### How it works
 
