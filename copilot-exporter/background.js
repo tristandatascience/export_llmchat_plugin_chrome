@@ -43,6 +43,35 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === 'COPEX_WINDOW') {
+    (async () => {
+      try {
+        if (!sender.tab || !sender.tab.windowId) {
+          sendResponse({ ok: false });
+          return;
+        }
+        const winId = sender.tab.windowId;
+        if (msg.action === 'save') {
+          const win = await chrome.windows.get(winId);
+          if (win.state !== 'maximized' && win.state !== 'fullscreen') {
+            await chrome.windows.update(winId, { state: 'maximized' });
+            sendResponse({ ok: true, previous: win.state });
+          } else {
+            sendResponse({ ok: true, previous: null });
+          }
+        } else if (msg.action === 'restore' && msg.previous) {
+          await chrome.windows.update(winId, { state: msg.previous });
+          sendResponse({ ok: true });
+        } else {
+          sendResponse({ ok: true });
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: String((e && e.message) || e) });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === 'COPEX_FETCH') {
     (async () => {
       try {

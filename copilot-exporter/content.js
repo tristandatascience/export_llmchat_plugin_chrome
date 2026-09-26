@@ -1323,19 +1323,26 @@
       } catch (_) { /* fenêtre illisible : on continue */ }
     };
 
-    // Dézoomer la page pendant le balayage (équivalent Ctrl+ -) : chaque
-    // écran affiche davantage de contenu, donc moins de fenêtres
-    // virtualisées à parcourir et un rendu plus rapide. Restauré à la fin.
-    const htmlEl = document.documentElement;
-    const prevZoom = htmlEl.style.zoom;
-    htmlEl.style.zoom = o.slowImages ? '0.5' : '0.6';
+    // Agrandir la fenêtre pendant le balayage : un plus grand viewport rend
+    // réellement davantage de messages par fenêtre virtualisée (contrairement
+    // au dézoom, qui réduit contenu et fenêtre dans les mêmes proportions).
+    // L'état initial est restauré à la fin.
+    const windowRelay = (action, previous) => new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'COPEX_WINDOW', action, previous },
+          (r) => resolve(chrome.runtime.lastError ? null : r));
+      } catch (_) { resolve(null); }
+    });
+    const savedWindow = await windowRelay('save');
+    const previousState = savedWindow && savedWindow.previous ? savedWindow.previous : null;
+    await sleep(400); // laisse le reflow s'installer
     try {
       const before = getTop();
       await absorb(false); // fenêtre de départ (position actuelle)
 
       // Phase 1 : remontée progressive jusqu'en haut — les fenêtres
-      // capturées sont de plus en plus anciennes. Pas plus dense en mode
-      // lent pour ne pas sauter de sections.
+      // capturées sont de plus en plus anciennes.
       const stepUp = o.slowImages ? step * 0.6 : step;
       for (let i = 0; i < 300 && getTop() > 0; i++) {
         setTop(Math.max(0, getTop() - stepUp));
@@ -1360,8 +1367,6 @@
       }
       // Phase 3 : redescente dense pour forcer le rendu de CHAQUE section —
       // c'est ici que le milieu d'une longue conversation se matérialise.
-      // En mode lent : pas resserré, double capture par pas (le rendu peut
-      // arriver avec retard) et seconde passe complète.
       const descend = async (dense) => {
         const stepDown = dense ? step * 0.4 : step * 0.6;
         const total = getHeight();
@@ -1381,7 +1386,7 @@
       }
       setTop(before);
     } finally {
-      htmlEl.style.zoom = prevZoom;
+      await windowRelay('restore', previousState);
     }
     await sleep(600); // laisse le rendu paresseux se stabiliser
     return { messages: acc, images: imgByMsg };
