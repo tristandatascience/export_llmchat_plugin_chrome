@@ -264,8 +264,7 @@ async function doExport(format) {
 
     const label = response.platformLabel || '';
     const imagesNote = response.images > 0 ? '\n' + T.imagesDone(response.images) : '';
-    const apiNote = response.apiDebug ? '
-' + T.apiDebugNote(response.apiDebug) : '';
+    const apiNote = response.apiDebug ? '\n' + T.apiDebugNote(response.apiDebug) : '';
     const missedNote = (response.imagesSeen || 0) > (response.images || 0)
       ? '\n' + T.imagesMissed(response.imagesSeen, response.images) : '';
     if (format === 'copy') {
