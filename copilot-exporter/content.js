@@ -1327,9 +1327,11 @@
     await absorb(false); // fenêtre de départ (position actuelle)
 
     // Phase 1 : remontée progressive jusqu'en haut — les fenêtres
-    // capturées sont de plus en plus anciennes
-    for (let i = 0; i < 200 && getTop() > 0; i++) {
-      setTop(Math.max(0, getTop() - step));
+    // capturées sont de plus en plus anciennes. Pas plus dense en mode
+    // lent pour ne pas sauter de sections.
+    const stepUp = o.slowImages ? step * 0.6 : step;
+    for (let i = 0; i < 300 && getTop() > 0; i++) {
+      setTop(Math.max(0, getTop() - stepUp));
       await sleep(upMs);
       await absorb(true);
     }
@@ -1349,13 +1351,26 @@
       if (h === last) stable++;
       else { stable = 0; last = h; }
     }
-    // Phase 3 : redescente pour forcer le rendu de chaque section — les
-    // fenêtres capturées sont de plus en plus récentes
-    const total = getHeight();
-    for (let pos = step; pos < total; pos += step) {
-      setTop(pos);
-      await sleep(downMs);
-      await absorb(false);
+    // Phase 3 : redescente dense pour forcer le rendu de CHAQUE section —
+    // c'est ici que le milieu d'une longue conversation se matérialise.
+    // En mode lent : pas resserré, double capture par pas (le rendu peut
+    // arriver avec retard) et seconde passe complète.
+    const descend = async (dense) => {
+      const stepDown = dense ? step * 0.4 : step * 0.6;
+      const total = getHeight();
+      for (let pos = stepDown; pos < total; pos += stepDown) {
+        setTop(pos);
+        await sleep(downMs);
+        await absorb(false);
+        if (dense) {
+          await sleep(Math.max(120, downMs / 2));
+          await absorb(false);
+        }
+      }
+    };
+    await descend(false);
+    if (o.slowImages) {
+      await descend(true);
     }
     setTop(before);
     await sleep(600); // laisse le rendu paresseux se stabiliser
