@@ -748,7 +748,7 @@
         .finally(() => clearTimeout(timer));
     };
 
-    let res;
+    let res = null;
     try {
       res = await fetchWithTimeout(historyUrl, { headers: { accept: 'application/json' } });
       if (!res.ok) {
@@ -760,12 +760,40 @@
       }
     } catch (_) {
       copilotApiDebug = 'network';
-      return null;
+      res = null;
     }
-    if (!res.ok) { copilotApiDebug = 'http-' + res.status; return null; }
 
-    let data;
-    try { data = await res.json(); } catch (_) { copilotApiDebug = 'bad-json'; return null; }
+    let data = null;
+    if (res && res.ok) {
+      try { data = await res.json(); } catch (_) { copilotApiDebug = 'bad-json'; }
+    }
+    if (!data) {
+      // Seconde chance : la même conversation existe sur copilot.com, où
+      // cette API est valide. Requête via le service worker (host
+      // permissions) avec les cookies de session copilot.com.
+      const altUrl = `https://copilot.com/c/api/conversations/${encodeURIComponent(chatId)}/history?api-version=${cfg.version}`;
+      const relayed = await new Promise((resolve) => {
+        let settled = false;
+        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+        try {
+          chrome.runtime.sendMessage(
+            { type: 'COPEX_FETCH', url: altUrl, headers: { accept: 'application/json' } },
+            (resp) => done(chrome.runtime.lastError ? null : (resp || null)));
+          setTimeout(() => done(null), 20000);
+        } catch (_) { done(null); }
+      });
+      if (relayed && relayed.ok && typeof relayed.text === 'string') {
+        try {
+          data = JSON.parse(relayed.text);
+          copilotApiDebug = 'via copilot.com';
+        } catch (_) { copilotApiDebug = 'bad-json'; }
+      } else if (!copilotApiDebug || copilotApiDebug === 'network') {
+        copilotApiDebug = res ? 'http-' + res.status
+          : (relayed ? 'alt:' + (relayed.status || relayed.error || 'x') : 'network');
+      }
+    }
+    if (!data) return null;
+
     const results = Array.isArray(data && data.results) ? data.results : [];
     if (results.length === 0) { copilotApiDebug = 'no-messages'; return null; }
 
