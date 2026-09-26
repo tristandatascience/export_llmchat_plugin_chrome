@@ -82,6 +82,7 @@
       rawNote: "L'extraction structurée n'a pas trouvé les messages : voici le texte de la conversation tel qu'affiché.",
       rawBlock: (platform) => `Export brut de la conversation ${platform}`,
       imagesSection: 'Images de la conversation',
+      stats: (n, c, i, mode) => `Export : ${n} messages · ${c} caractères · ${i} images · mode ${mode}`,
       imagesMissed: (seen, got) => `${seen} image(s) détectée(s), ${got} capturée(s) — certaines sont protégées par le site (CORS)`,
       unsupported: "Cet onglet n'est pas une conversation prise en charge (Copilot, ChatGPT, Claude ou Gemini).",
       pdfFailed: "La génération du PDF a échoué. Utilisez l'export Markdown en attendant."
@@ -99,6 +100,7 @@
       rawNote: 'Structured extraction could not find the messages: here is the text of the conversation as displayed.',
       rawBlock: (platform) => `Raw export of the ${platform} conversation`,
       imagesSection: 'Conversation images',
+      stats: (n, c, i, mode) => `Export: ${n} messages · ${c} characters · ${i} images · mode ${mode}`,
       imagesMissed: (seen, got) => `${seen} image(s) detected, ${got} captured — some are protected by the site (CORS)`,
       unsupported: 'This tab is not a supported conversation (Copilot, ChatGPT, Claude or Gemini).',
       pdfFailed: 'PDF generation failed. Use the Markdown export in the meantime.'
@@ -722,9 +724,20 @@
       }
       text = String(text || '').trim();
       if (!text) continue;
-      messages.push({ role, text });
+      // Échos fréquents dans les stores : ignore les doublons consécutifs
+      const prev = messages[messages.length - 1];
+      if (prev && prev.role === role && normText(prev.text) === normText(text)) continue;
+      messages.push({ role, text, at: m.createdAt || m.timestamp || m.created_at || null });
     }
-    return messages.length > 0 ? messages : null;
+    if (messages.length === 0) return null;
+    // Tri chronologique quand les dates sont disponibles
+    const dated = messages.filter((m) => m.at);
+    if (dated.length >= messages.length * 0.8) {
+      const t = (x) => (x instanceof Date ? x.getTime() : Date.parse(x));
+      messages.sort((a, b) => (t(a.at) || 0) - (t(b.at) || 0));
+    }
+    for (const m of messages) delete m.at;
+    return messages;
   }
 
   async function extractReactState(T) {
@@ -1664,6 +1677,16 @@
         return `![Image ${info.n} — ${info.filename}](${info.filename})`;
       })
     }));
+    for (const m of rewritten) {
+      // Refs d'images dupliquées (échos de store) : garde une seule fois
+      let prev = '';
+      m.text = String(m.text).replace(/!\[[^\]]*\]\([^)]+\)/g, (ref) => {
+        if (ref === prev) return '';
+        prev = ref;
+        return ref;
+      });
+      m.text = m.text.replace(/\n{3,}/g, '\n\n').trim();
+    }
     const cleaned = format === 'txt'
       ? rewritten.map((m) => ({
           role: m.role,
@@ -1995,6 +2018,19 @@
     }
 
     let filename = null;
+    // Statistiques de debug (bandeau en fin de fichier) : nombre de
+    // messages, caractères de texte (hors références d'images), images,
+    // et stratégie utilisée.
+    const REF_COUNT_RE = /!\[[^\]]*\]\([^)]+\)/g;
+    const statsFor = (imgs) => {
+      const n = messages ? messages.length : 0;
+      const chars = (messages || [])
+        .reduce((sum, m) => sum + normText(m.text).length, 0)
+        + (mode === 'raw' ? normText(text).length : 0);
+      const refs = (messages || [])
+        .reduce((sum, m) => sum + (String(m.text).match(REF_COUNT_RE) || []).length, 0);
+      return T.stats(n, chars, imgs + refs, `${mode}/${source}`);
+    };
     if (format === 'pdf') {
       filename = `${fileBaseName(platform)}.pdf`;
       let pdfMessages = messages;
@@ -2019,10 +2055,14 @@
             : null))
           .filter(Boolean);
       }
+      pdfMessages = (pdfMessages || []).concat([{
+        role: 'assistant',
+        text: statsFor(pdfImages.length)
+      }]);
       let bytes = null;
       try {
         bytes = globalThis.__AIChatExportPdf
-          ? globalThis.__AIChatExportPdf.conversation(pdfMessages, meta, options.header !== false, pdfImages)
+          ? globalThis.__AIChatExportPdf.conversation(pdfMessages, meta, false, pdfImages)
           : null;
       } catch (e) {
         bytes = null;
@@ -2034,9 +2074,10 @@
       downloadFile(bytes, filename, 'application/pdf');
     } else if (format === 'md' || format === 'txt') {
       filename = `${fileBaseName(platform)}.${format}`;
+      imageCount = imageFiles.length;
+      text += `\n---\n\n${statsFor(imageCount)}\n`;
       downloadFile(text, filename, format === 'md' ? 'text/markdown' : 'text/plain');
       // Les images capturées arrivent en fichiers séparés, juste après.
-      imageCount = imageFiles.length;
       for (const img of imageFiles) {
         await sleep(200); // laisse le navigateur enchaîner les téléchargements
         downloadFile(img.blob, img.filename, img.blob.type || 'image/png');
