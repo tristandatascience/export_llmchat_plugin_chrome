@@ -489,7 +489,10 @@
     for (const node of nodes) {
       if (node.classList.contains(cfg.userClass)) {
         const content = node.querySelector(cfg.userContent) || node;
-        const text = stripNoise(deepInnerText(content).trim());
+        let text = stripNoise(deepInnerText(content).trim());
+        // Images envoyées par l'utilisateur (pièces jointes)
+        const userImgs = collectImgRefs(node, cfg.userContent);
+        if (userImgs) text += (text ? '\n\n' : '') + userImgs;
         if (text) messages.push({ role: 'user', text });
       } else {
         const content = node.querySelector(cfg.assistantContent) || node;
@@ -531,6 +534,27 @@
     return messages;
   }
 
+  // Références Markdown des images d'une zone du DOM : écarte les icônes /
+  // avatars (SVG, petites tailles) et, optionnellement, les images déjà
+  // traitées par un conteneur donné (ex. .markdown déjà converti).
+  function collectImgRefs(scope, skipWithin) {
+    if (!scope || !scope.querySelectorAll) return '';
+    const seen = new Set();
+    const refs = [];
+    for (const img of scope.querySelectorAll('img')) {
+      if (skipWithin && img.closest && img.closest(skipWithin)) continue;
+      const src = img.getAttribute('src') || '';
+      if (!src || seen.has(src)) continue;
+      if (/\.svg($|\?)/i.test(src) || /^data:image\/svg/i.test(src)) continue;
+      const w = img.naturalWidth || 0;
+      const h = img.naturalHeight || 0;
+      if (w && h && (w < 100 || h < 100)) continue;
+      seen.add(src);
+      refs.push(`![image](${src})`);
+    }
+    return refs.join('\n\n');
+  }
+
   // ==================================================================
   // Extracteur ChatGPT
   // ==================================================================
@@ -544,7 +568,10 @@
         !!turn.querySelector(cfg.userContent);
       if (isUser) {
         const content = turn.querySelector(cfg.userContent) || turn;
-        const text = stripNoise(deepInnerText(content).trim());
+        let text = stripNoise(deepInnerText(content).trim());
+        // Images envoyées par l'utilisateur (hors zone de texte)
+        const userImgs = collectImgRefs(turn, cfg.userContent);
+        if (userImgs) text += (text ? '\n\n' : '') + userImgs;
         if (text) messages.push({ role: 'user', text });
       } else {
         let text = '';
@@ -552,6 +579,9 @@
           const part = domToMarkdown(cleanClone(md));
           if (part) text += (text ? '\n\n' : '') + part;
         }
+        // Images générées affichées hors de la zone markdown (DALL-E…)
+        const extraImgs = collectImgRefs(turn, '.markdown');
+        if (extraImgs) text += (text ? '\n\n' : '') + extraImgs;
         if (!text) {
           const content = turn.querySelector('.whitespace-pre-wrap') || turn;
           text = deepInnerText(content).trim();
@@ -572,7 +602,10 @@
     for (const node of nodes) {
       if (node.matches(cfg.userSelector)) {
         const content = node.querySelector(cfg.userContent) || node;
-        const text = stripNoise(deepInnerText(content).trim());
+        let text = stripNoise(deepInnerText(content).trim());
+        // Images envoyées par l'utilisateur (pièces jointes)
+        const userImgs = collectImgRefs(node, cfg.userContent);
+        if (userImgs) text += (text ? '\n\n' : '') + userImgs;
         if (text) messages.push({ role: 'user', text });
       } else {
         // Réponse : retire réflexions (« thinking »), artefacts et contrôles.
@@ -605,7 +638,10 @@
           node.querySelector(cfg.userContent) ||
           node.querySelector(cfg.userContentFallback) ||
           node;
-        const text = stripNoise(deepInnerText(content).trim().replace(/^you said\s+/i, ''));
+        let text = stripNoise(deepInnerText(content).trim().replace(/^you said\s+/i, ''));
+        // Images envoyées par l'utilisateur (pièces jointes, hors texte)
+        const userImgs = collectImgRefs(node, cfg.userContent);
+        if (userImgs) text += (text ? '\n\n' : '') + userImgs;
         if (text) messages.push({ role: 'user', text });
       } else {
         const container = node.querySelector(cfg.assistantContent) || node;
@@ -614,6 +650,10 @@
           const part = domToMarkdown(cleanClone(md));
           if (part) text += (text ? '\n\n' : '') + part;
         }
+        // Images générées affichées hors de la zone markdown (Gemini les
+        // place dans des cartes d'aperçu voisines)
+        const extraImgs = collectImgRefs(container, cfg.assistantMarkdown);
+        if (extraImgs) text += (text ? '\n\n' : '') + extraImgs;
         if (!text) text = stripNoise(deepInnerText(container).trim());
         if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
       }
