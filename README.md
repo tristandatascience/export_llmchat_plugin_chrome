@@ -74,6 +74,16 @@ confirmation « Télécharger plusieurs fichiers » (une fois par site). Si une
 image ne peut vraiment pas être récupérée (CORS), son URL d'origine est
 conservée dans le texte. Option désactivable dans le popup.
 
+### Options du popup
+
+- **Défiler pour tout charger** : fait défiler la conversation et assemble
+  chaque fenêtre rendue — récupère l'historique complet même quand la liste
+  est virtualisée.
+- **Défilement lent pour les images** : ralentit ce balayage et attend le
+  chargement des images visibles à chaque pas — utile pour les longues
+  conversations dont les images s'affichent avec retard.
+- **Inclure les images** / **Inclure l'en-tête** : voir ci-dessus.
+
 ### Comment ça marche
 
 Chaîne de stratégies, de la plus fiable à la plus générique :
@@ -173,6 +183,16 @@ element itself for `blob:` and same-origin images) and converted to JPEG
 for the PDF. Chrome may ask a one-time "Download multiple files"
 confirmation per site. If an image truly cannot be fetched (CORS), its
 original URL is kept in the text. Can be disabled in the popup.
+
+### Popup options
+
+- **Scroll to load the full history**: scrolls the conversation and
+  assembles every rendered window — recovers the full history even when the
+  list is virtualized.
+- **Slow scrolling for images**: slows this sweep down and waits for visible
+  images to finish loading at each step — useful for long conversations
+  whose images appear with a delay.
+- **Include images / Include the header**: see above.
 
 ### How it works
 

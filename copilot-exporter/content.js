@@ -689,9 +689,22 @@
   // Assemblage par recouvrement : fusionne une fenêtre capturée pendant le
   // défilement avec l'accumulateur (contre les listes virtualisées qui ne
   // gardent que la partie visible dans le DOM).
+  // Les comparaisons ignorent les références d'images : une même message
+  // capturé avant et après le chargement de son image doit être reconnu
+  // identique.
   // ------------------------------------------------------------------
+  const IMAGE_REF_RE = /!\[[^\]]*\]\([^)]+\)/g;
+
+  function normText(t) {
+    return String(t || '').replace(IMAGE_REF_RE, '').trim();
+  }
+
   function sameMessage(a, b) {
-    return a && b && a.role === b.role && a.text === b.text;
+    return a && b && a.role === b.role && normText(a.text) === normText(b.text);
+  }
+
+  function messageKey(m) {
+    return m.role + '§' + normText(m.text);
   }
 
   function windowMatches(A, ia, B, ib, len) {
@@ -714,16 +727,40 @@
           return win.slice(0, win.length - k).concat(acc);
         }
       }
-      const existing = new Set(acc.map((m) => m.role + '§' + m.text));
-      return win.filter((m) => !existing.has(m.role + '§' + m.text)).concat(acc);
+      const existing = new Set(acc.map(messageKey));
+      return win.filter((m) => !existing.has(messageKey(m))).concat(acc);
     }
     for (let k = n; k > 0; k--) {
       if (windowMatches(win, 0, acc, acc.length - k, k)) {
-        return acc.concat(win.slice(k));
+        // La fenêtre est plus récente : ses copies (images chargées)
+        // priment sur celles de l'accumulateur.
+        return acc.slice(0, acc.length - k).concat(win);
       }
     }
-    const existing = new Set(acc.map((m) => m.role + '§' + m.text));
-    return acc.concat(win.filter((m) => !existing.has(m.role + '§' + m.text)));
+    const existing = new Set(acc.map(messageKey));
+    return acc.concat(win.filter((m) => !existing.has(messageKey(m))));
+  }
+
+  // Attend (dans la limite du budget) que les images visibles de la fenêtre
+  // courante finissent de charger, pour capturer leurs vraies données.
+  async function waitForVisibleImages(budgetMs) {
+    try {
+      const scope = conversationRoot() || document;
+      const pending = Array.from(scope.querySelectorAll('img')).filter((i) => {
+        if (i.complete) return false;
+        const w = i.naturalWidth || 0;
+        const h = i.naturalHeight || 0;
+        return !(w && h && (w < 100 || h < 100)); // les icônes ne comptent pas
+      });
+      if (pending.length === 0) return;
+      await Promise.race([
+        Promise.all(pending.map((i) => new Promise((resolve) => {
+          i.addEventListener('load', resolve, { once: true });
+          i.addEventListener('error', resolve, { once: true });
+        }))),
+        sleep(budgetMs)
+      ]);
+    } catch (_) { /* non bloquant */ }
   }
 
   // Fonction d'extraction légère utilisée pendant le balayage (une par pas
@@ -824,11 +861,17 @@
   }
 
   // Défilement complet pour charger tout l'historique ET balayer la
-  // conversation au passage : chaque fenêtre rendue est extraite puis
-  // fusionnée par recouvrement — indispensable quand la liste est
-  // virtualisée (le DOM ne contient jamais tout à la fois).
+  // conversation au passage : chaque fenêtre rendue est extraite (texte +
+  // images, après attente de leur chargement) puis fusionnée par
+  // recouvrement — indispensable quand la liste est virtualisée.
+  // opts.slowImages ralentit le balayage pour laisser les images se charger.
   // Renvoie l'accumulateur des messages capturés.
-  async function ensureFullyLoaded(platformKey, sweepFn) {
+  async function ensureFullyLoaded(platformKey, sweepFn, opts) {
+    const o = opts || {};
+    const upMs = o.slowImages ? 550 : 260;
+    const downMs = o.slowImages ? 220 : 90;
+    const imgBudget = o.slowImages ? 1500 : 400;
+
     // Boutons « afficher plus / voir la suite » éventuels
     try {
       for (const btn of document.querySelectorAll('button, [role="button"]')) {
@@ -859,22 +902,28 @@
     const step = Math.max(200, (target ? target.clientHeight : window.innerHeight) * 0.8);
 
     let acc = [];
-    const absorb = (older) => {
+    const absorb = async (older) => {
       if (!sweepFn) return;
+      // Laisse d'abord les images visibles finir de charger
+      await waitForVisibleImages(imgBudget);
       try {
-        acc = mergeWindow(acc, sweepFn(), older);
+        let msgs = sweepFn();
+        if (msgs && msgs.length > 0 && o.imagesSection) {
+          msgs = harvestImages(msgs, o.imagesSection, platformKey);
+        }
+        acc = mergeWindow(acc, msgs, older);
       } catch (_) { /* fenêtre illisible : on continue */ }
     };
 
     const before = getTop();
-    absorb(false); // fenêtre de départ (position actuelle)
+    await absorb(false); // fenêtre de départ (position actuelle)
 
     // Phase 1 : remontée progressive jusqu'en haut — les fenêtres
     // capturées sont de plus en plus anciennes
     for (let i = 0; i < 200 && getTop() > 0; i++) {
       setTop(Math.max(0, getTop() - step));
-      await sleep(260);
-      absorb(true);
+      await sleep(upMs);
+      await absorb(true);
     }
     // Phase 2 : en haut, attendre la fin des chargements par lots
     // (petit aller-retour pour déclencher les écouteurs de défilement)
@@ -887,7 +936,7 @@
       await sleep(60);
       setTop(0);
       await sleep(250);
-      absorb(true);
+      await absorb(true);
       const h = getHeight();
       if (h === last) stable++;
       else { stable = 0; last = h; }
@@ -897,8 +946,8 @@
     const total = getHeight();
     for (let pos = step; pos < total; pos += step) {
       setTop(pos);
-      await sleep(90);
-      absorb(false);
+      await sleep(downMs);
+      await absorb(false);
     }
     setTop(before);
     await sleep(600); // laisse le rendu paresseux se stabiliser
@@ -1315,7 +1364,10 @@
       let swept = null;
       if (options.scroll) {
         try {
-          swept = await ensureFullyLoaded(key, sweepExtractFn(key));
+          swept = await ensureFullyLoaded(key, sweepExtractFn(key), {
+            slowImages: !!options.slowImages,
+            imagesSection: T.imagesSection
+          });
         } catch (_) { /* non bloquant */ }
       }
       for (const name of platform.extractors) {
