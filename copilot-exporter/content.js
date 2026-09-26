@@ -482,14 +482,26 @@
 
       const raw = localStorage.getItem(entry);
       if (!raw) { substrateDebug = 'no-token-entry'; return null; }
-      const parsed = JSON.parse(raw);
+      let parsed = JSON.parse(raw);
+      // Certains stockages double-encodent le JSON
+      if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed); } catch (_) { /* garde tel quel */ }
+      }
+      const shape = (o) => (o && typeof o === 'object')
+        ? Object.keys(o).slice(0, 8).join(',')
+        : typeof o;
       // Format non chiffré (MSAL récent) : le jeton est directement dans
       // .secret, sans enveloppe {nonce, data}.
       if (parsed && typeof parsed.secret === 'string' && parsed.secret.length > 20) {
         return parsed.secret;
       }
-      const payload = parsed.payload;
-      if (!payload || !payload.nonce || !payload.data) { substrateDebug = 'bad-payload'; return null; }
+      // Enveloppe chiffrée : imbriquée (.payload) ou au premier niveau
+      let payload = parsed && parsed.payload;
+      if (!payload && parsed && parsed.nonce && parsed.data) payload = parsed;
+      if (!payload || !payload.nonce || !payload.data) {
+        substrateDebug = `bad-payload [clés: ${shape(parsed)}]`;
+        return null;
+      }
 
       const cookie = document.cookie.split('; ')
         .find((c) => c.startsWith('msal.cache.encryption='));
