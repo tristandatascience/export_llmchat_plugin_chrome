@@ -686,6 +686,79 @@
   }
 
   // ==================================================================
+  // État React de la page (MAIN world) : la conversation complète vit
+  // dans la mémoire de l'application, même quand le DOM est virtualisé.
+  // Technique inspirée de ChatVault (lecture des données détenues par
+  // React, invisibles dans le HTML rendu).
+  // ==================================================================
+  let reactDebug = null;
+
+  function mapReactMessages(list, T) {
+    const messages = [];
+    for (const m of list) {
+      if (!m || typeof m !== 'object') continue;
+      const roleRaw = String(m.author || m.sender || m.role || m.from || '').toLowerCase();
+      if (!roleRaw) continue;
+      const role = (roleRaw === 'user' || roleRaw === 'human' || roleRaw === 'you')
+        ? 'user' : 'assistant';
+      let text = '';
+      const txt = m.text !== undefined ? m.text : (m.content !== undefined ? m.content : null);
+      if (typeof txt === 'string') {
+        text = txt;
+      } else if (Array.isArray(txt)) {
+        for (const part of txt) {
+          if (!part) continue;
+          if (typeof part === 'string') { text += (text ? '\n\n' : '') + part; continue; }
+          if (part.type === 'text' && part.text) {
+            text += (text ? '\n\n' : '') + part.text;
+          } else if (part.type === 'image') {
+            const url = part.url || part.imageUrl || part.originalImageUrl;
+            if (url) text += (text ? '\n\n' : '') + `![image](${url})`;
+          }
+        }
+      } else if (txt && typeof txt === 'object') {
+        if (typeof txt.text === 'string') text = txt.text;
+        else if (typeof txt.message === 'string') text = txt.message;
+      }
+      text = String(text || '').trim();
+      if (!text) continue;
+      messages.push({ role, text });
+    }
+    return messages.length > 0 ? messages : null;
+  }
+
+  async function extractReactState(T) {
+    reactDebug = null;
+    const scan = await new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      try {
+        chrome.runtime.sendMessage({ type: 'COPEX_REACT_SCAN' }, (resp) => {
+          done(chrome.runtime.lastError ? null : (resp || null));
+        });
+        setTimeout(() => done(null), 20000);
+      } catch (_) { done(null); }
+    });
+    if (!scan) { reactDebug = 'scan-x'; return null; }
+    const candidates = Array.isArray(scan.candidates) ? scan.candidates : [];
+    if (candidates.length === 0) {
+      reactDebug = scan.error ? 'scan:' + String(scan.error).slice(0, 40) : 'no-state';
+      return null;
+    }
+    let best = null;
+    for (const json of candidates) {
+      try {
+        const list = JSON.parse(json);
+        const mapped = mapReactMessages(list, T);
+        if (mapped && (!best || mapped.length > best.length)) best = mapped;
+      } catch (_) { /* candidat illisible */ }
+    }
+    if (!best) { reactDebug = 'unmapped'; return null; }
+    reactDebug = 'ok(' + best.length + ')';
+    return best;
+  }
+
+  // ==================================================================
   // API interne Claude (claude.ai) — même origine, session du navigateur.
   // Renvoie la conversation complète sans défiler.
   // ==================================================================
@@ -1825,6 +1898,10 @@
         if (!messages || messages.length === 0) {
           try { messages = await extractSubstrateApi(T); } catch (_) { messages = null; }
         }
+        // État React de la page : la conversation complète même virtualisée
+        if (!messages || messages.length === 0) {
+          try { messages = await extractReactState(T); } catch (_) { messages = null; }
+        }
       }
     }
 
@@ -1975,6 +2052,7 @@
       apiDebug: (source !== 'api' && platform.apiFirst)
         ? (key === 'copilot'
             ? 'c/api:' + (copilotApiDebug || '?') + ' | substrate:' + (substrateDebug || '?')
+              + ' | react:' + (reactDebug || '?')
             : (substrateDebug || ''))
         : null,
       count: messages ? messages.length : 0,

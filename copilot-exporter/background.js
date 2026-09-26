@@ -18,8 +18,99 @@ const PAGE_FETCH_FUNC = async (url, headers) => {
   }
 };
 
+const REACT_SCAN_FUNC = () => {
+  const results = [];
+  const seenJson = new Set();
+  const score = (arr) => {
+    if (!Array.isArray(arr) || arr.length < 2) return 0;
+    let roleish = 0;
+    let textish = 0;
+    for (const m of arr.slice(0, 60)) {
+      if (!m || typeof m !== 'object') return 0;
+      const role = m.author || m.sender || m.role || m.from;
+      const txt = m.text || m.content || m.parts || m.message;
+      if (['user', 'human', 'assistant', 'ai', 'copilot', 'model', 'bot'].includes(role)) roleish++;
+      if (typeof txt === 'string' || Array.isArray(txt) || (txt && typeof txt === 'object')) textish++;
+    }
+    if (roleish >= 1 && textish >= Math.ceil(arr.length / 2)) return arr.length;
+    return 0;
+  };
+  const pushCandidate = (arr) => {
+    if (results.length >= 3) return;
+    try {
+      const json = JSON.stringify(arr, (k, v) =>
+        (typeof v === 'string' && v.length > 400000 ? v.slice(0, 400000) : v));
+      if (!seenJson.has(json)) { seenJson.add(json); results.push(json); }
+    } catch (_) { /* non sérialisable */ }
+  };
+  const scanValue = (v, depth) => {
+    if (!v || depth > 5 || results.length >= 3) return;
+    if (Array.isArray(v)) {
+      if (score(v) > 0) pushCandidate(v);
+      for (const it of v.slice(0, 80)) scanValue(it, depth + 1);
+      return;
+    }
+    if (typeof v === 'object') {
+      for (const k of Object.keys(v).slice(0, 30)) {
+        if (k === 'ref' || k === 'children' || k[0] === '_') continue;
+        try { scanValue(v[k], depth + 1); } catch (_) { /* propriété protégée */ }
+      }
+    }
+  };
+  const roots = [document.getElementById('root'), document.body, document.querySelector('main')]
+    .filter(Boolean);
+  for (const el of roots) {
+    for (const key of Object.keys(el)) {
+      if (!key.startsWith('__reactContainer$') && !key.startsWith('__reactFiber$') &&
+          !key.startsWith('__reactInternalInstance$')) continue;
+      const visited = new Set();
+      const stack = [el[key]];
+      let hops = 0;
+      while (stack.length > 0 && hops++ < 2500 && results.length < 3) {
+        const node = stack.pop();
+        if (!node || typeof node !== 'object' || visited.has(node)) continue;
+        visited.add(node);
+        if (node.memoizedProps) scanValue(node.memoizedProps, 0);
+        if (node.memoizedState) scanValue(node.memoizedState, 0);
+        if (node.child) stack.push(node.child);
+        if (node.sibling) stack.push(node.sibling);
+      }
+    }
+  }
+  try {
+    for (const k of Object.keys(window).slice(0, 600)) {
+      if (results.length >= 3) break;
+      if (/state|store|initial/i.test(k)) {
+        try { scanValue(window[k], 0); } catch (_) { /* inaccessible */ }
+      }
+    }
+  } catch (_) { /* enumeration bloquee */ }
+  return { candidates: results };
+};
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg !== 'object') return;
+
+  if (msg.type === 'COPEX_REACT_SCAN') {
+    (async () => {
+      try {
+        if (!sender.tab || !sender.tab.id) {
+          sendResponse({ candidates: [], error: 'no-tab' });
+          return;
+        }
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: sender.tab.id },
+          world: 'MAIN',
+          func: REACT_SCAN_FUNC
+        });
+        const result = results && results[0] && results[0].result;
+        sendResponse(result || { candidates: [] });
+      } catch (e) {
+        sendResponse({ candidates: [], error: String((e && e.message) || e) });
+      }
+    })();
+    return true;
+  }
 
   if (msg.type === 'COPEX_PAGE_FETCH') {
     (async () => {
