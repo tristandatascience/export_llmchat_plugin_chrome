@@ -794,7 +794,8 @@
     const d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
-    const safe = raw.replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'conversation';
+    const safe = raw.replace(/[^a-zA-Z0-9-_ ]/g, '').trim().replace(/\s+/g, '-')
+      || 'conversation';
     return `${platform.filePrefix}-${safe}-${stamp}`;
   }
 
@@ -875,7 +876,7 @@
   // ==================================================================
   // Capture des images de la conversation (téléchargées en fichiers)
   // ==================================================================
-  const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+  const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
   const MAX_IMAGES = 40;
   const FETCH_CONCURRENCY = 4;
 

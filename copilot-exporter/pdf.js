@@ -120,9 +120,9 @@
   // ------------------------------------------------------------------
   function inlineClean(t) {
     let s = String(t);
-    s = s.replace(/!\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, (m, alt, url) =>
+    s = s.replace(/!\[([^\]]*)\]\(([^)]*)\)/g, (m, alt, url) =>
       alt ? `${alt} (image : ${url})` : `(image : ${url})`);
-    s = s.replace(/\[([^\]]*)\]\(([^)\s]*)[^)]*\)/g, (m, txt, url) => {
+    s = s.replace(/\[([^\]]*)\]\(([^)]*)\)/g, (m, txt, url) => {
       if (url && txt && txt !== url) return `${txt} (${url})`;
       return txt || url || '';
     });
@@ -186,7 +186,7 @@
         continue;
       }
       // Image seule sur sa ligne : rendue embarquée si disponible
-      if (/^!\[[^\]]*\]\([^)\s]+\)\s*$/.test(line.trim())) {
+      if (/^!\[[^\]]*\]\([^)]+\)\s*$/.test(line.trim())) {
         blocks.push({ type: 'image', ref: line.trim() });
         i++;
         continue;
@@ -196,7 +196,7 @@
       i++;
       while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^\s*```/.test(lines[i]) &&
              !/^#{1,6}\s+/.test(lines[i]) && !/^\s*>\s?/.test(lines[i]) &&
-             !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) && !/^!\[[^\]]*\]\([^)\s]+\)\s*$/.test(lines[i])) {
+             !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) && !/^!\[[^\]]*\]\([^)]+\)\s*$/.test(lines[i])) {
         para.push(lines[i]);
         i++;
       }
@@ -357,7 +357,7 @@
         break;
       }
       case 'image': {
-        const m = block.ref.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+        const m = block.ref.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
         const alt = m ? m[1] : '';
         const file = m ? m[2] : '';
         const img = pdf.images.get(file);
