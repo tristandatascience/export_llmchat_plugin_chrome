@@ -822,7 +822,11 @@
       if (/\.svg($|\?)/i.test(src) || /^data:image\/svg/i.test(src)) continue;
       const w = img.naturalWidth || 0;
       const h = img.naturalHeight || 0;
-      if (w && h && (w < 100 || h < 100)) continue;
+      if (w && h && (w < 200 || h < 200)) continue; // avatars et pictos écartés
+      const rect = img.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && rect.width < 80 && rect.height < 80) {
+        continue; // icône affichée toute petite (favicon, picto de recherche)
+      }
       seen.add(src);
       refs.push(`![image](${src})`);
     }
@@ -1052,7 +1056,9 @@
         if (i.complete) return false;
         const w = i.naturalWidth || 0;
         const h = i.naturalHeight || 0;
-        return !(w && h && (w < 100 || h < 100)); // les icônes ne comptent pas
+        if (w && h && (w < 200 || h < 200)) return false;
+        const rect = i.getBoundingClientRect();
+        return !(rect.width > 0 && rect.height > 0 && rect.width < 80 && rect.height < 80);
       });
       if (pending.length === 0) return;
       await Promise.race([
@@ -1597,7 +1603,11 @@
       if (/\.svg($|\?)/i.test(src) || /^data:image\/svg/i.test(src)) continue;
       const w = img.naturalWidth || 0;
       const h = img.naturalHeight || 0;
-      if (w && h && (w < 100 || h < 100)) continue;
+      if (w && h && (w < 200 || h < 200)) continue; // avatars et pictos écartés
+      const rect = img.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && rect.width < 80 && rect.height < 80) {
+        continue; // icône affichée toute petite (favicon, picto de recherche)
+      }
       seen.add(src);
 
       const ref = `![image](${src})`;
