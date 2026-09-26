@@ -960,6 +960,19 @@
     }, 60_000);
   }
 
+  // Certains rendus dupliquent le texte utilisateur (copie accessible +
+  // copie visible) : si le texte est fait de deux blocs identiques, on n'en
+  // garde qu'un.
+  function collapseDuplicate(text) {
+    const t = String(text || '').trim();
+    if (!t) return t;
+    const parts = t.split(/\n{2,}/);
+    if (parts.length === 2 && parts[0].trim() === parts[1].trim()) {
+      return parts[0].trim();
+    }
+    return t;
+  }
+
   // ==================================================================
   // Pipeline d'export
   // ==================================================================
@@ -1014,6 +1027,20 @@
         }
         if (messages.length > 0) break;
       }
+    }
+
+    // Garde-fou qualité : une vraie conversation contient toujours des
+    // réponses de l'IA. Si l'extraction n'a trouvé QUE des messages
+    // utilisateur, elle est partielle (interface modifiée) : on préfère un
+    // export brut complet plutôt qu'un fichier tronqué.
+    if (messages && messages.length > 0 && !messages.some((m) => m.role === 'assistant')) {
+      messages = [];
+    }
+    // Nettoyage des textes utilisateur dupliqués par le rendu de la page
+    if (messages && messages.length > 0) {
+      messages = messages.map((m) =>
+        m.role === 'user' ? { role: 'user', text: collapseDuplicate(m.text) } : m
+      );
     }
 
     let mode;
