@@ -699,7 +699,7 @@
     const messages = [];
     for (const m of list) {
       if (!m || typeof m !== 'object') continue;
-      const roleRaw = String(m.author || m.sender || m.role || m.from || '').toLowerCase();
+      const roleRaw = String(m.author || m.sender || m.role || m.from || m.authorRole || m.speaker || '').toLowerCase();
       if (!roleRaw) continue;
       const role = (roleRaw === 'user' || roleRaw === 'human' || roleRaw === 'you')
         ? 'user' : 'assistant';
@@ -1981,6 +1981,21 @@
     // export brut complet plutôt qu'un fichier tronqué.
     if (messages && messages.length > 0 && !messages.some((m) => m.role === 'assistant')) {
       messages = [];
+    }
+    // Déduplication globale des images par URL : au balayage, une même
+    // image peut être ancrée à plusieurs messages selon la fenêtre — on ne
+    // garde que sa première occurrence (l'ordre de lecture).
+    if (messages && messages.length > 0) {
+      const seenImg = new Set();
+      for (const m of messages) {
+        m.text = String(m.text).replace(IMAGE_RE, (whole, alt, url) => {
+          if (seenImg.has(url)) return '';
+          seenImg.add(url);
+          return whole;
+        });
+        m.text = m.text.replace(/\n{3,}/g, '\n\n').trim();
+      }
+      messages = messages.filter((m) => m.text);
     }
     // Nettoyage des textes utilisateur dupliqués par le rendu de la page
     if (messages && messages.length > 0) {

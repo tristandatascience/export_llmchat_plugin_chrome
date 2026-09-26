@@ -21,22 +21,23 @@ const PAGE_FETCH_FUNC = async (url, headers) => {
 const REACT_SCAN_FUNC = () => {
   const results = [];
   const seenJson = new Set();
+  const ROLE_KEYS = ['user', 'human', 'assistant', 'ai', 'copilot', 'model', 'bot'];
   const score = (arr) => {
     if (!Array.isArray(arr) || arr.length < 2) return 0;
     let roleish = 0;
     let textish = 0;
-    for (const m of arr.slice(0, 60)) {
+    for (const m of arr.slice(0, 80)) {
       if (!m || typeof m !== 'object') return 0;
-      const role = m.author || m.sender || m.role || m.from;
+      const role = m.author || m.sender || m.role || m.from || m.authorRole || m.speaker;
       const txt = m.text || m.content || m.parts || m.message;
-      if (['user', 'human', 'assistant', 'ai', 'copilot', 'model', 'bot'].includes(role)) roleish++;
+      if (typeof role === 'string' && ROLE_KEYS.includes(role.toLowerCase())) roleish++;
       if (typeof txt === 'string' || Array.isArray(txt) || (txt && typeof txt === 'object')) textish++;
     }
     if (roleish >= 1 && textish >= Math.ceil(arr.length / 2)) return arr.length;
     return 0;
   };
   const pushCandidate = (arr) => {
-    if (results.length >= 3) return;
+    if (results.length >= 5) return;
     try {
       const json = JSON.stringify(arr, (k, v) =>
         (typeof v === 'string' && v.length > 400000 ? v.slice(0, 400000) : v));
@@ -44,21 +45,21 @@ const REACT_SCAN_FUNC = () => {
     } catch (_) { /* non sérialisable */ }
   };
   const scanValue = (v, depth) => {
-    if (!v || depth > 5 || results.length >= 3) return;
+    if (!v || depth > 7 || results.length >= 5) return;
     if (Array.isArray(v)) {
       if (score(v) > 0) pushCandidate(v);
-      for (const it of v.slice(0, 80)) scanValue(it, depth + 1);
+      for (const it of v.slice(0, 100)) scanValue(it, depth + 1);
       return;
     }
     if (typeof v === 'object') {
-      for (const k of Object.keys(v).slice(0, 30)) {
+      for (const k of Object.keys(v).slice(0, 40)) {
         if (k === 'ref' || k === 'children' || k[0] === '_') continue;
         try { scanValue(v[k], depth + 1); } catch (_) { /* propriété protégée */ }
       }
     }
   };
-  const roots = [document.getElementById('root'), document.body, document.querySelector('main')]
-    .filter(Boolean);
+  const roots = [document.getElementById('root'), document.getElementById('app'),
+    document.body, document.querySelector('main')].filter(Boolean);
   for (const el of roots) {
     for (const key of Object.keys(el)) {
       if (!key.startsWith('__reactContainer$') && !key.startsWith('__reactFiber$') &&
@@ -66,21 +67,24 @@ const REACT_SCAN_FUNC = () => {
       const visited = new Set();
       const stack = [el[key]];
       let hops = 0;
-      while (stack.length > 0 && hops++ < 2500 && results.length < 3) {
+      while (stack.length > 0 && hops++ < 4000 && results.length < 5) {
         const node = stack.pop();
         if (!node || typeof node !== 'object' || visited.has(node)) continue;
         visited.add(node);
         if (node.memoizedProps) scanValue(node.memoizedProps, 0);
         if (node.memoizedState) scanValue(node.memoizedState, 0);
+        if (node.updateQueue && node.updateQueue.memoizedState) {
+          scanValue(node.updateQueue.memoizedState, 0);
+        }
         if (node.child) stack.push(node.child);
         if (node.sibling) stack.push(node.sibling);
       }
     }
   }
   try {
-    for (const k of Object.keys(window).slice(0, 600)) {
-      if (results.length >= 3) break;
-      if (/state|store|initial/i.test(k)) {
+    for (const k of Object.keys(window).slice(0, 800)) {
+      if (results.length >= 5) break;
+      if (/state|store|initial|conversation|chat/i.test(k)) {
         try { scanValue(window[k], 0); } catch (_) { /* inaccessible */ }
       }
     }
