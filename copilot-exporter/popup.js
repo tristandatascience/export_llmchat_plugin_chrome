@@ -57,9 +57,11 @@ const I18N = {
     txtBtn: 'Texte (.txt)',
     copyBtn: 'Copier le Markdown',
     scrollOpt: 'Défiler pour tout charger (historique long)',
+    imagesOpt: 'Inclure les images de la conversation (fichiers séparés)',
     headerOpt: "Inclure l'en-tête (date, URL, titre)",
     footer: '100 % local — aucune donnée ne quitte votre navigateur.',
     donate: 'Offrir un café',
+    imagesDone: (n) => `🖼️ ${n} image(s) téléchargée(s) en fichiers`,
     reading: 'Lecture de la conversation en cours…',
     noTab: 'Aucun onglet actif.',
     invalidResponse: 'Réponse invalide du content script.',
@@ -84,9 +86,11 @@ const I18N = {
     txtBtn: 'Text (.txt)',
     copyBtn: 'Copy Markdown',
     scrollOpt: 'Scroll to load the full history (long conversations)',
+    imagesOpt: 'Include conversation images (separate files)',
     headerOpt: 'Include the header (date, URL, title)',
     footer: '100% local — no data ever leaves your browser.',
     donate: 'Buy me a coffee',
+    imagesDone: (n) => `🖼️ ${n} image(s) downloaded as files`,
     reading: 'Reading the conversation…',
     noTab: 'No active tab.',
     invalidResponse: 'Invalid response from the content script.',
@@ -134,9 +138,10 @@ function applyTranslations() {
 async function loadOptions() {
   try {
     const stored = await chrome.storage.sync.get({
-      scroll: true, header: true, platform: 'auto', lang: 'auto'
+      scroll: true, images: true, header: true, platform: 'auto', lang: 'auto'
     });
     $('opt-scroll').checked = stored.scroll;
+    $('opt-images').checked = stored.images;
     $('opt-header').checked = stored.header;
     platformSel.value = stored.platform;
     langSel.value = stored.lang;
@@ -147,6 +152,7 @@ async function saveOptions() {
   try {
     await chrome.storage.sync.set({
       scroll: $('opt-scroll').checked,
+      images: $('opt-images').checked,
       header: $('opt-header').checked,
       platform: platformSel.value,
       lang: langSel.value
@@ -236,6 +242,7 @@ async function doExport(format) {
         platform: platformSel.value === 'auto' ? null : platformSel.value,
         lang: langSel.value === 'auto' ? null : langSel.value,
         scroll: $('opt-scroll').checked,
+        images: $('opt-images').checked,
         header: $('opt-header').checked
       }
     });
@@ -245,13 +252,14 @@ async function doExport(format) {
     }
 
     const label = response.platformLabel || '';
+    const imagesNote = response.images > 0 ? '\n' + T.imagesDone(response.images) : '';
     if (format === 'copy') {
       await navigator.clipboard.writeText(response.text);
       const via = response.source === 'api' ? T.viaApiShort : '';
       setStatus('ok', T.copied(label, response.count || T.rawLabel, via));
     } else if (response.mode === 'structured') {
       const via = response.source === 'api' ? T.viaApi : T.viaDom;
-      setStatus('ok', T.ok(label, response.count, via, response.filename));
+      setStatus('ok', T.ok(label, response.count, via, response.filename) + imagesNote);
     } else {
       setStatus('warn', T.raw(label, response.filename));
     }

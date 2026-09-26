@@ -246,7 +246,10 @@
         else if (tag === 'img') {
           const src = n.getAttribute('src') || '';
           const alt = n.getAttribute('alt') || 'image';
-          if (src && !src.startsWith('data:')) s += '![' + alt + '](' + src + ')';
+          // Les icônes SVG (avatars, pictos d'interface) ne sont pas des
+          // images de conversation : on les ignore.
+          const isSvg = /\.svg($|\?)/i.test(src) || /^data:image\/svg/i.test(src);
+          if (src && !isSvg) s += '![' + alt + '](' + src + ')';
         }
         else if (tag === 'svg' || tag === 'style' || tag === 'script' || tag === 'button') {
           // icônes et contrôles : ignorés
@@ -769,6 +772,102 @@
   }
 
   // ==================================================================
+  // Capture des images de la conversation (téléchargées en fichiers)
+  // ==================================================================
+  const IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+  const MAX_IMAGES = 40;
+  const FETCH_CONCURRENCY = 4;
+
+  function extFromUrl(url) {
+    if (/^data:/i.test(url)) {
+      const m = url.slice(5, 40).match(/^image\/([a-z0-9+.-]+)/i);
+      if (m) return mimeToExt(m[1]);
+    }
+    const m = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|bmp)$/i);
+    if (m) return mimeToExt(m[1]);
+    return null;
+  }
+
+  function mimeToExt(mime) {
+    const base = String(mime).toLowerCase().split('+')[0];
+    if (base === 'jpeg') return 'jpg';
+    if (base === 'svg+xml') return 'svg';
+    return base;
+  }
+
+  async function fetchImageBlob(url) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(url, { credentials: 'include', signal: controller.signal });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      if (!blob || !/^image\//.test(blob.type || '')) return null;
+      return blob.size > 0 ? blob : null;
+    } catch (_) {
+      return null; // CORS, blob expiré, hors ligne… : l'URL d'origine est conservée
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function extFor(blob, url) {
+    const ext = mimeToExt((blob.type || '').split('/')[1] || '');
+    if (ext && ext !== 'svg') return ext;
+    return extFromUrl(url) || 'png';
+  }
+
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i]);
+      }
+    });
+    await Promise.all(workers);
+    return out;
+  }
+
+  // Télécharge les images référencées dans les messages (![alt](url)) et
+  // réécrit les références vers les fichiers locaux.
+  async function captureImages(messages, baseName) {
+    const urls = [];
+    for (const m of messages) {
+      for (const match of String(m.text).matchAll(IMAGE_RE)) {
+        if (!urls.includes(match[2])) urls.push(match[2]);
+      }
+    }
+    if (urls.length === 0) return { messages, images: [] };
+
+    const limited = urls.slice(0, MAX_IMAGES);
+    const blobs = new Map();
+    const fetched = await mapLimit(limited, FETCH_CONCURRENCY, (url) => fetchImageBlob(url));
+    limited.forEach((url, i) => { if (fetched[i]) blobs.set(url, fetched[i]); });
+
+    const renames = new Map();
+    let n = 0;
+    for (const url of limited) {
+      const blob = blobs.get(url);
+      if (!blob) continue;
+      n++;
+      const num = String(n).padStart(2, '0');
+      renames.set(url, `${baseName}-img${num}.${extFor(blob, url)}`);
+    }
+
+    const rewritten = messages.map((m) => ({
+      role: m.role,
+      text: String(m.text).replace(IMAGE_RE, (whole, alt, url) =>
+        renames.has(url) ? `![${alt || 'image'}](${renames.get(url)})` : whole
+      )
+    }));
+    const images = Array.from(renames.entries())
+      .map(([url, filename]) => ({ blob: blobs.get(url), filename }));
+    return { messages: rewritten, images };
+  }
+
+  // ==================================================================
   // Téléchargement (Blob + <a download>) — texte ou binaire
   // ==================================================================
   function downloadFile(data, filename, mime) {
@@ -845,8 +944,17 @@
 
     let mode;
     let text;
+    let imageFiles = [];
     if (messages && messages.length > 0) {
       mode = 'structured';
+      // Capture des images (fichiers séparés) pour les exports texte
+      if (options.images !== false && (format === 'md' || format === 'txt')) {
+        try {
+          const captured = await captureImages(messages, fileBaseName(platform));
+          messages = captured.messages;
+          imageFiles = captured.images;
+        } catch (_) { /* les images restent des URL dans le texte */ }
+      }
       text = format === 'txt'
         ? buildText(messages, meta, options.header !== false)
         : buildMarkdown(messages, meta, options.header !== false);
@@ -881,6 +989,11 @@
     } else if (format === 'md' || format === 'txt') {
       filename = `${fileBaseName(platform)}.${format}`;
       downloadFile(text, filename, format === 'md' ? 'text/markdown' : 'text/plain');
+      // Les images capturées arrivent en fichiers séparés, juste après.
+      for (const img of imageFiles) {
+        await sleep(200); // laisse le navigateur enchaîner les téléchargements
+        downloadFile(img.blob, img.filename, img.blob.type || 'image/png');
+      }
     }
 
     return {
@@ -890,6 +1003,7 @@
       mode,
       source,
       count: messages ? messages.length : 0,
+      images: imageFiles.length,
       filename,
       text,
       title: meta.title

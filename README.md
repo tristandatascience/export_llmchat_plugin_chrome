@@ -56,6 +56,14 @@ sur Ko-fi](https://ko-fi.com/tristanlozahic).
 Le fichier arrive dans vos **Téléchargements** :
 `<plateforme>-<titre>-<AAAA-MM-JJ_HH-MM-SS>.<ext>`.
 
+**Images** : les images présentes dans la conversation (générées par l'IA ou
+envoyées par vous) sont téléchargées en fichiers séparés
+(`<fichier>-img01.png`, …) et le Markdown les référence par liens locaux —
+placez le tout dans un même dossier et l'export est autonome. Chrome peut
+demander une confirmation « Télécharger plusieurs fichiers » (une fois par
+site). Si une image ne peut pas être récupérée (CORS, session expirée), son
+URL d'origine est conservée dans le texte. Option désactivable dans le popup.
+
 ### Comment ça marche
 
 Chaîne de stratégies, de la plus fiable à la plus générique :
@@ -136,6 +144,13 @@ Ko-fi](https://ko-fi.com/tristanlozahic).
 
 The file lands in your **Downloads** folder:
 `<platform>-<title>-<YYYY-MM-DD_HH-MM-SS>.<ext>`.
+
+**Images**: images found in the conversation (AI-generated or uploaded by
+you) are downloaded as separate files (`<file>-img01.png`, …) and referenced
+by the Markdown through local links — keep everything in one folder and the
+export is self-contained. Chrome may ask a one-time "Download multiple files"
+confirmation per site. If an image cannot be fetched (CORS, expired session),
+its original URL is kept in the text. Can be disabled in the popup.
 
 ### How it works
 
