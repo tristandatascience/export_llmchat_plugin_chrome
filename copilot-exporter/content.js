@@ -576,21 +576,41 @@
       headers['x-anchormailbox'] = `Oid:${account.oid}@${account.tenant}`;
     }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    let res;
+    // Les scripts de contenu ne contournent pas le CORS (Chrome 85+) : la
+    // requête passe par le service worker de l'extension, qui bénéficie des
+    // host_permissions. Repli en fetch direct si le relais est absent.
+    let res = null;
     try {
-      res = await fetch(url, { headers, credentials: 'include', signal: controller.signal });
-    } catch (_) {
-      substrateDebug = 'network';
-      return null;
-    } finally {
-      clearTimeout(timer);
+      res = await new Promise((resolve) => {
+        let settled = false;
+        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+        try {
+          chrome.runtime.sendMessage({ type: 'COPEX_FETCH', url, headers }, (resp) => {
+            if (chrome.runtime.lastError) { done(null); return; }
+            done(resp || null);
+          });
+          setTimeout(() => done(null), 30000);
+        } catch (_) { done(null); }
+      });
+    } catch (_) { res = null; }
+    if (!res || typeof res.ok !== 'boolean') {
+      // Repli : fetch direct depuis l'onglet (peut échouer au CORS)
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const r = await fetch(url, { headers, credentials: 'include', signal: controller.signal });
+        res = { ok: r.ok, status: r.status, text: await r.text() };
+      } catch (_) {
+        substrateDebug = 'network';
+        return null;
+      } finally {
+        clearTimeout(timer);
+      }
     }
     if (!res.ok) { substrateDebug = 'http-' + res.status; return null; }
 
     let data;
-    try { data = await res.json(); } catch (_) { substrateDebug = 'bad-json'; return null; }
+    try { data = JSON.parse(res.text); } catch (_) { substrateDebug = 'bad-json'; return null; }
     const list = data && data.source && Array.isArray(data.source.messages)
       ? data.source.messages
       : [];

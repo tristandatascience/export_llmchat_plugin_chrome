@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
   "name": "AI Chat Export",
-  "version": "2.9.8",
+  "version": "2.9.9",
   "description": "Export full conversations from Copilot, ChatGPT, Claude or Gemini to Markdown, PDF or text files. FR/EN. 100% local — no data sent.",
   "author": "plugin_copilot",
   "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
   "host_permissions": ["https://substrate.office.com/*"],
+  "background": { "service_worker": "background.js" },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Export the conversation (Copilot, ChatGPT, Claude, Gemini)",
