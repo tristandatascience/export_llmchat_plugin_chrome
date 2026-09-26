@@ -549,23 +549,55 @@
     const citations = [];
     for (const m of list) {
       const role = m && m.author === 'user' ? 'user' : 'assistant';
-      let text = String((m && (m.text || m.content)) || '').trim();
+      let text = '';
+      // Contenu structuré : parties typées (texte, image générée…)
+      const parts = m && Array.isArray(m.content) ? m.content
+        : (m && Array.isArray(m.parts) ? m.parts : null);
+      if (parts) {
+        for (const p of parts) {
+          if (!p) continue;
+          if (p.type === 'text' && p.text) {
+            text += (text ? '\n\n' : '') + p.text;
+          } else if (p.type === 'image' && p.url) {
+            text += (text ? '\n\n' : '') + `![image](${p.url})`;
+            if (p.prompt) text += '\n\n' + T.prompt(p.prompt);
+          }
+        }
+      } else {
+        text = String((m && (m.text || m.content)) || '').trim();
+      }
+      // Adaptive Cards : images embarquées (éléments {type:"Image", url})
+      if (m && m.adaptiveCards) {
+        try {
+          const cards = typeof m.adaptiveCards === 'string'
+            ? JSON.parse(m.adaptiveCards) : m.adaptiveCards;
+          const json = JSON.stringify(cards);
+          const imgRe = /"type"\s*:\s*"Image"[^}]*?"url"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+          let im;
+          while ((im = imgRe.exec(json)) !== null) {
+            const url = JSON.parse('"' + im[1] + '"');
+            if (url && !text.includes(url)) {
+              text += (text ? '\n\n' : '') + `![image](${url})`;
+            }
+          }
+        } catch (_) { /* cartes illisibles : on garde le texte */ }
+      }
       if (!text) continue;
       // Les citations en texte sont marquées 【...】 : on les retire et on
-      // collecte les références pour une section Sources.
+      // rattache les références à CE message sous forme de section Sources.
       text = text.replace(/【[^】]*】/g, '').trim();
       if (m && Array.isArray(m.references)) {
+        const refs = [];
         for (const r of m.references) {
           const u = r && (r.url || r.linkUrl || r.citationUrl || r.citation_click_url);
           const t = r && (r.title || r.name);
-          if (u) citations.push(t ? `[${t}](${u})` : u);
+          if (u) refs.push(t ? `[${t}](${u})` : u);
+        }
+        if (refs.length > 0) {
+          text += '\n\n' + T.sources + ' ' + Array.from(new Set(refs)).join(' · ');
         }
       }
       messages.push({ role, text });
-    }
-    if (citations.length > 0 && messages.length > 0) {
-      const last = messages[messages.length - 1];
-      last.text += '\n\n' + T.sources + ' ' + Array.from(new Set(citations)).join(' · ');
     }
     return messages.length > 0 ? messages : null;
   }
