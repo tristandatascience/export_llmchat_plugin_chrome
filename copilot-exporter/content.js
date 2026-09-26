@@ -46,6 +46,7 @@
       assistantName: 'Claude',
       filePrefix: 'claude',
       hosts: ['claude.ai'],
+      apiFirst: true,
       extractors: ['claude']
     },
     gemini: {
@@ -419,6 +420,195 @@
       for (const n of clone.querySelectorAll(sel)) n.remove();
     }
     return clone;
+  }
+
+  // ==================================================================
+  // API Substrate — Copilot Chat M365 (copilot.cloud.microsoft,
+  // m365.cloud.microsoft) : conversation complète en une requête, sans
+  // défiler. Le jeton Bearer est déchiffré depuis le cache MSAL de la page
+  // (localStorage + cookie), comme le fait la page elle-même.
+  // ==================================================================
+  const SUBSTRATE = {
+    base: 'https://substrate.office.com/m365Copilot',
+    clientId: 'c0ab8ce9-e9a0-42e7-b064-33d422df41f1',
+    scope: 'https://substrate.office.com/sydney/.default'
+  };
+
+  function b64urlToBytes(value) {
+    let t = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+    while (t.length % 4) t += '=';
+    const bin = atob(t);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  async function substrateToken() {
+    try {
+      const keysRaw = localStorage.getItem(`msal.3.token.keys.${SUBSTRATE.clientId}`);
+      if (!keysRaw) return null;
+      const keys = JSON.parse(keysRaw);
+      const entry = (keys.accessToken || []).find((k) => k.includes(SUBSTRATE.scope));
+      if (!entry) return null;
+      const raw = localStorage.getItem(entry);
+      if (!raw) return null;
+      const payload = JSON.parse(raw).payload;
+      if (!payload || !payload.nonce || !payload.data) return null;
+
+      const cookie = document.cookie.split('; ')
+        .find((c) => c.startsWith('msal.cache.encryption='));
+      if (!cookie) return null;
+      const cookieValue = decodeURIComponent(cookie.split('=').slice(1).join('='));
+      const baseKey = JSON.parse(cookieValue).key;
+
+      const encoder = new TextEncoder();
+      const hkdf = await crypto.subtle.importKey(
+        'raw', b64urlToBytes(baseKey), 'HKDF', false, ['deriveKey']);
+      const aesKey = await crypto.subtle.deriveKey(
+        {
+          name: 'HKDF',
+          salt: b64urlToBytes(payload.nonce),
+          hash: 'SHA-256',
+          info: encoder.encode(SUBSTRATE.clientId)
+        },
+        hkdf,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+      const plain = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(12) },
+        aesKey,
+        b64urlToBytes(payload.data)
+      );
+      const secret = JSON.parse(new TextDecoder().decode(plain)).secret;
+      return secret || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function substrateAccount() {
+    try {
+      const accounts = JSON.parse(localStorage.getItem('msal.3.account.keys') || '{}');
+      const list = Array.isArray(accounts.account) ? accounts.account : Object.values(accounts);
+      const first = list && list[0];
+      if (!first) return null;
+      const home = String(first).split('--')[0].split('|')[0].split('.');
+      if (!home[0]) return null;
+      return { oid: home[0], tenant: home[1] || '' };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function extractSubstrateApi(T) {
+    const match = location.pathname.match(/\/(?:chat\/conversation|chats?)\/([A-Za-z0-9_-]+)/i);
+    if (!match) return null;
+    const token = await substrateToken();
+    const account = substrateAccount();
+    if (!token || !account) return null;
+
+    const request = {
+      conversationId: match[1],
+      source: 'officeweb',
+      traceId: crypto.randomUUID().replace(/-/g, '')
+    };
+    const url = `${SUBSTRATE.base}/GetConversation?request=${encodeURIComponent(JSON.stringify(request))}`;
+    const headers = {
+      'authorization': `Bearer ${token}`,
+      'content-type': 'application/json',
+      'x-clientrequestid': crypto.randomUUID(),
+      'x-scenario': 'OfficeWebIncludedCopilot',
+      'x-routingparameter-sessionkey': account.oid
+    };
+    if (account.tenant) {
+      headers['x-anchormailbox'] = `Oid:${account.oid}@${account.tenant}`;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch(url, { headers, credentials: 'include', signal: controller.signal });
+    } catch (_) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return null;
+
+    let data;
+    try { data = await res.json(); } catch (_) { return null; }
+    const list = data && data.source && Array.isArray(data.source.messages)
+      ? data.source.messages
+      : [];
+    if (list.length === 0) return null;
+
+    const messages = [];
+    const citations = [];
+    for (const m of list) {
+      const role = m && m.author === 'user' ? 'user' : 'assistant';
+      let text = String((m && (m.text || m.content)) || '').trim();
+      if (!text) continue;
+      // Les citations en texte sont marquées 【...】 : on les retire et on
+      // collecte les références pour une section Sources.
+      text = text.replace(/【[^】]*】/g, '').trim();
+      if (m && Array.isArray(m.references)) {
+        for (const r of m.references) {
+          const u = r && (r.url || r.linkUrl || r.citationUrl || r.citation_click_url);
+          const t = r && (r.title || r.name);
+          if (u) citations.push(t ? `[${t}](${u})` : u);
+        }
+      }
+      messages.push({ role, text });
+    }
+    if (citations.length > 0 && messages.length > 0) {
+      const last = messages[messages.length - 1];
+      last.text += '\n\n' + T.sources + ' ' + Array.from(new Set(citations)).join(' · ');
+    }
+    return messages.length > 0 ? messages : null;
+  }
+
+  // ==================================================================
+  // API interne Claude (claude.ai) — même origine, session du navigateur.
+  // Renvoie la conversation complète sans défiler.
+  // ==================================================================
+  async function extractClaudeApi() {
+    const match = location.pathname.match(/\/chat\/([0-9a-f-]{20,40})/i);
+    if (!match) return null;
+    try {
+      const orgsRes = await fetch('/api/organizations', {
+        credentials: 'include',
+        headers: { accept: 'application/json' }
+      });
+      if (!orgsRes.ok) return null;
+      const orgs = await orgsRes.json();
+      const org = Array.isArray(orgs) && orgs[0] && orgs[0].uuid;
+      if (!org) return null;
+      const res = await fetch(
+        `/api/organizations/${org}/chat_conversations/${match[1]}?tree=True&rendering_mode=messages`,
+        { credentials: 'include', headers: { accept: 'application/json' } }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const list = data && Array.isArray(data.chat_messages) ? data.chat_messages : [];
+      const messages = [];
+      for (const m of list) {
+        const role = m && m.sender === 'human' ? 'user' : 'assistant';
+        let text = '';
+        const blocks = Array.isArray(m && m.content) ? m.content : [];
+        for (const block of blocks) {
+          if (block && block.type === 'text' && block.text) {
+            text += (text ? '\n\n' : '') + block.text;
+          }
+        }
+        if (text) messages.push({ role, text });
+      }
+      return messages.length > 0 ? messages : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ==================================================================
@@ -869,9 +1059,9 @@
   // ==================================================================
   // Repérage de la zone de conversation (mode brut) + chargement complet
   // ==================================================================
-  // Repère le conteneur défilant de la conversation : on privilégie celui
-  // qui contient les ancres de messages (conteneurs de la plateforme ou
-  // marqueurs « You said: »), sinon le plus grand conteneur défilant.
+  // Repère le conteneur défilant de la conversation : on privilégie le plus
+  // HAUT conteneur (la conversation est plus longue que la barre latérale),
+  // avec un bonus s'il contient les ancres de messages.
   function findScroller(platformKey) {
     let anchors = [];
     try { anchors = anchorCandidates(document.body, platformKey); } catch (_) { /* sans ancre */ }
@@ -885,7 +1075,7 @@
         for (const a of anchors) {
           if (el.contains(a.el)) { contains = true; break; }
         }
-        const score = el.clientHeight * el.clientWidth * (contains ? 10 : 1);
+        const score = el.scrollHeight * (contains ? 10 : 1);
         if (score > bestScore) { bestScore = score; best = el; }
       }
     }
@@ -1419,11 +1609,22 @@
     meta.rawNote = T.rawNote;
     meta.rawBlock = T.rawBlock(platform.label);
 
-    // Stratégie 1 : API interne (Copilot uniquement) — pas besoin de défiler.
+    // Stratégie 1 : API interne (Copilot, Claude) — pas besoin de défiler.
+    // L'option « forcer la page » (options.forceDom) la désactive au profit
+    // du balayage DOM complet.
     let messages = null;
     let source = 'api';
-    if (platform.apiFirst) {
-      try { messages = await extractCopilotApi(T); } catch (_) { messages = null; }
+    if (platform.apiFirst && !options.forceDom) {
+      if (key === 'claude') {
+        try { messages = await extractClaudeApi(); } catch (_) { messages = null; }
+      } else {
+        // copilot.com : API de la conversation ; domaines cloud microsoft :
+        // API Substrate (jeton MSAL de la page).
+        try { messages = await extractCopilotApi(T); } catch (_) { messages = null; }
+        if (!messages || messages.length === 0) {
+          try { messages = await extractSubstrateApi(T); } catch (_) { messages = null; }
+        }
+      }
     }
 
     // Stratégie 2 : extracteurs DOM de la plateforme, complétés par le

@@ -55,6 +55,7 @@ const I18N = {
     copyBtn: 'Copier le Markdown',
     scrollOpt: 'Défiler pour tout charger (historique long)',
     slowOpt: 'Défilement lent pour bien charger les images (longues conversations)',
+    domOpt: "Forcer l'extraction par la page (balayage), même si l'API est disponible",
     imagesOpt: 'Inclure les images de la conversation (fichiers séparés)',
     headerOpt: "Inclure l'en-tête (date, URL, titre)",
     footer: '100 % local — aucune donnée ne quitte votre navigateur.',
@@ -86,6 +87,7 @@ const I18N = {
     copyBtn: 'Copy Markdown',
     scrollOpt: 'Scroll to load the full history (long conversations)',
     slowOpt: 'Slow scrolling to fully load images (long conversations)',
+    domOpt: 'Force page-based extraction (sweep), even when the API is available',
     imagesOpt: 'Include conversation images (separate files)',
     headerOpt: 'Include the header (date, URL, title)',
     footer: '100% local — no data ever leaves your browser.',
@@ -139,13 +141,14 @@ function applyTranslations() {
 async function loadOptions() {
   try {
     const stored = await chrome.storage.sync.get({
-      scroll: true, images: true, header: true, slowImages: false,
+      scroll: true, images: true, header: true, slowImages: false, forceDom: false,
       platform: 'auto', lang: 'auto'
     });
     $('opt-scroll').checked = stored.scroll;
     $('opt-images').checked = stored.images;
     $('opt-header').checked = stored.header;
     $('opt-slow').checked = stored.slowImages;
+    $('opt-dom').checked = stored.forceDom;
     platformSel.value = stored.platform;
     langSel.value = stored.lang;
   } catch (_) { /* valeurs par défaut */ }
@@ -158,6 +161,7 @@ async function saveOptions() {
       images: $('opt-images').checked,
       header: $('opt-header').checked,
       slowImages: $('opt-slow').checked,
+      forceDom: $('opt-dom').checked,
       platform: platformSel.value,
       lang: langSel.value
     });
@@ -247,6 +251,7 @@ async function doExport(format) {
         scroll: $('opt-scroll').checked,
         images: $('opt-images').checked,
         slowImages: $('opt-slow').checked,
+      forceDom: $('opt-dom').checked,
         header: $('opt-header').checked
       }
     });

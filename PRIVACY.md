@@ -23,6 +23,7 @@ All processing happens locally inside your browser, on your own device.
   API, using your browser's existing session on `copilot.com`. This is a
   same-origin request between your browser and Copilot, identical in nature to
   the page loading its own data. Nothing is sent to the extension developer.
+- On Microsoft 365 Copilot Chat (`copilot.cloud.microsoft`, `m365.cloud.microsoft`), the conversation is re-read from Microsoft's Substrate API (`substrate.office.com`) using the authentication token already present in your browser session — the same request the page itself makes. Nothing is sent to the extension developer.
 - Stores your UI preferences (selected platform, language, export options) via
   `chrome.storage.sync`. This data is synced through your own Google account by
   Chrome itself and is **not accessible to the developer**.
@@ -75,6 +76,7 @@ navigateur, sur votre propre appareil.
   `copilot.com`. Il s'agit d'une requête de même origine entre votre navigateur
   et Copilot, de même nature que le chargement de la page elle-même. Rien
   n'est envoyé au développeur de l'extension.
+- Sur Microsoft 365 Copilot Chat (`copilot.cloud.microsoft`, `m365.cloud.microsoft`), la conversation est relue depuis l'API Substrate de Microsoft (`substrate.office.com`) avec le jeton d'authentification déjà présent dans la session du navigateur — la même requête que celle qu'effectue la page elle-même. Rien n'est envoyé au développeur de l'extension.
 - Stocke vos préférences d'interface (plateforme, langue, options) via
   `chrome.storage.sync`. Ces données sont synchronisées par Chrome à travers
   votre propre compte Google et **ne sont pas accessibles au développeur**.
