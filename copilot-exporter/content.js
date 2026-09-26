@@ -30,7 +30,7 @@
       label: 'Copilot',
       assistantName: 'Copilot',
       filePrefix: 'copilot',
-      hosts: ['copilot.com', 'www.copilot.com', 'copilot.microsoft.com', 'm365.cloud.microsoft', 'copilot.msn.com'],
+      hosts: ['copilot.com', 'www.copilot.com', 'copilot.microsoft.com', 'm365.cloud.microsoft', 'copilot.cloud.microsoft', 'copilot.msn.com'],
       apiFirst: true,
       extractors: ['copilotModern', 'copilotCib']
     },
