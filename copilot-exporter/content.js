@@ -2044,7 +2044,16 @@
         + (mode === 'raw' ? normText(text).length : 0);
       const refs = (messages || [])
         .reduce((sum, m) => sum + (String(m.text).match(REF_COUNT_RE) || []).length, 0);
-      return T.stats(n, chars, imgs + refs, `${mode}/${source}`);
+      // Chaîne de diagnostic complète, conservée dans le document (le
+      // popup, lui, ne garde rien).
+      const diagParts = [];
+      if (key === 'copilot') {
+        diagParts.push('c/api:' + (copilotApiDebug || '-'));
+        diagParts.push('substrate:' + (substrateDebug || '-'));
+        diagParts.push('react:' + (reactDebug || '-'));
+      }
+      const diagLine = diagParts.length > 0 ? ` · ${diagParts.join(' · ')}` : '';
+      return T.stats(n, chars, imgs + refs, `${mode}/${source}`) + diagLine;
     };
     if (format === 'pdf') {
       filename = `${fileBaseName(platform)}.pdf`;
