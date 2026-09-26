@@ -447,11 +447,39 @@
 
   async function substrateToken() {
     try {
-      const keysRaw = localStorage.getItem(`msal.3.token.keys.${SUBSTRATE.clientId}`);
-      if (!keysRaw) { substrateDebug = 'no-msal-keys'; return null; }
-      const keys = JSON.parse(keysRaw);
-      const entry = (keys.accessToken || []).find((k) => k.includes(SUBSTRATE.scope));
-      if (!entry) { substrateDebug = 'no-sydney-token'; return null; }
+      // Balaye TOUS les caches MSAL (le site peut utiliser un autre
+      // identifiant d'application que celui attendu) et cherche un jeton
+      // substrate. L'identifiant du cache trouvé sert de paramètre HKDF.
+      const stores = [];
+      const preferred = localStorage.getItem(`msal.3.token.keys.${SUBSTRATE.clientId}`);
+      if (preferred) stores.push({ clientId: SUBSTRATE.clientId, raw: preferred });
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const m = key && key.match(/^msal\.(\d+)\.token\.keys\.(.+)$/);
+        if (!m || m[2] === SUBSTRATE.clientId) continue;
+        const raw = localStorage.getItem(key);
+        if (raw) stores.push({ clientId: m[2], raw });
+      }
+
+      let entry = null;
+      let entryClientId = null;
+      let scopesApercu = '';
+      for (const store of stores) {
+        let keys;
+        try { keys = JSON.parse(store.raw); } catch (_) { continue; }
+        const arr = (keys && keys.accessToken) || [];
+        if (!scopesApercu && arr.length > 0) {
+          scopesApercu = arr[0].slice(-70);
+        }
+        const found = arr.find((t) => t.includes('substrate.office.com/sydney')) ||
+                      arr.find((t) => t.includes('substrate.office.com'));
+        if (found) { entry = found; entryClientId = store.clientId; break; }
+      }
+      if (!entry) {
+        substrateDebug = 'no-sydney-token' + (scopesApercu ? ` [scopes: ${scopesApercu}]` : '');
+        return null;
+      }
+
       const raw = localStorage.getItem(entry);
       if (!raw) { substrateDebug = 'no-token-entry'; return null; }
       const payload = JSON.parse(raw).payload;
@@ -471,7 +499,7 @@
           name: 'HKDF',
           salt: b64urlToBytes(payload.nonce),
           hash: 'SHA-256',
-          info: encoder.encode(SUBSTRATE.clientId)
+          info: encoder.encode(entryClientId)
         },
         hkdf,
         { name: 'AES-GCM', length: 256 },
