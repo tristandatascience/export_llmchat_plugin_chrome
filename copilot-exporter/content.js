@@ -30,7 +30,7 @@
       label: 'Copilot',
       assistantName: 'Copilot',
       filePrefix: 'copilot',
-      hosts: ['copilot.com', 'www.copilot.com', 'copilot.microsoft.com', 'm365.cloud.microsoft'],
+      hosts: ['copilot.com', 'www.copilot.com', 'copilot.microsoft.com', 'm365.cloud.microsoft', 'copilot.msn.com'],
       apiFirst: true,
       extractors: ['copilotModern', 'copilotCib']
     },
@@ -1397,7 +1397,9 @@
     const platform = key ? PLATFORMS[key] : null;
     const T = STRINGS[resolveLang(options.lang)];
     if (!platform) {
-      return { ok: false, error: T.unsupported };
+      // L'hôte est inclus pour diagnostic : la liste des hôtes pris en
+      // charge est dans PLATFORMS, en tête de fichier.
+      return { ok: false, error: `${T.unsupported} [${location.hostname}]` };
     }
 
     const meta = {

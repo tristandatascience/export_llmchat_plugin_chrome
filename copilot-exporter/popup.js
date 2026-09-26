@@ -33,9 +33,6 @@ const HOST_TO_PLATFORM = {
   'gemini.google.com': 'gemini'
 };
 
-const SUPPORTED_URL_RE =
-  /^https:\/\/(copilot\.com|www\.copilot\.com|copilot\.microsoft\.com|m365\.cloud\.microsoft|chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com)\//;
-
 const PLATFORM_LABELS = {
   copilot: 'Copilot',
   chatgpt: 'ChatGPT',
@@ -214,10 +211,9 @@ async function showDetectedPlatform() {
 
 // S'assure que les scripts sont bien présents dans l'onglet
 // (utile si la page était ouverte avant l'installation / la mise à jour).
+// Pas de pré-filtre d'URL ici : c'est le content script qui détermine si la
+// plateforme est prise en charge (source unique de vérité).
 async function ensureContentScript(tab) {
-  if (tab.url && !SUPPORTED_URL_RE.test(tab.url)) {
-    throw new Error(T.errTab);
-  }
   try {
     const pong = await chrome.tabs.sendMessage(tab.id, { type: 'COPEX_PING' });
     if (pong && pong.ok) return;
