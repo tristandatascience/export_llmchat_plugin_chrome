@@ -1397,7 +1397,10 @@
   // Télécharge les images référencées dans les messages (![alt](url)) et
   // réécrit les références vers les fichiers locaux.
   // Renvoie { messages, images, seen } avec seen = images repérées.
-  async function captureImages(messages, baseName) {
+  // Format md : les data: URI restent intégrées au fichier (Markdown
+  // autonome qui s'affiche partout) ; txt : mention courte ; pdf : les
+  // images sont embarquées dans le document après conversion.
+  async function captureImages(messages, baseName, format) {
     const urls = [];
     for (const m of messages) {
       for (const match of String(m.text).matchAll(IMAGE_RE)) {
@@ -1408,16 +1411,18 @@
 
     const limited = urls.slice(0, MAX_IMAGES);
     const blobs = new Map();
-    const fetched = await mapLimit(limited, FETCH_CONCURRENCY, async (url) => {
+    const toFetch = limited.filter((url) => !(format === 'md' && /^data:/i.test(url)));
+    const fetched = await mapLimit(toFetch, FETCH_CONCURRENCY, async (url) => {
       // fetch d'abord, puis capture directe depuis l'élément affiché
       return (await fetchImageBlob(url)) || (await captureViaElement(url));
     });
-    limited.forEach((url, i) => { if (fetched[i]) blobs.set(url, fetched[i]); });
+    const fetchedMap = new Map();
+    toFetch.forEach((url, i) => { if (fetched[i]) fetchedMap.set(url, fetched[i]); });
 
     const renames = new Map();
     let n = 0;
-    for (const url of limited) {
-      const blob = blobs.get(url);
+    for (const url of toFetch) {
+      const blob = fetchedMap.get(url);
       if (!blob) continue;
       n++;
       const num = String(n).padStart(2, '0');
@@ -1427,6 +1432,8 @@
 
     // Chaque image est référencée clairement dans le texte :
     // ![Image N — nom-du-fichier.ext](nom-du-fichier.ext)
+    // Les data: URI non traitées : intactes en md (fichier autonome),
+    // mention courte en txt.
     const rewritten = messages.map((m) => ({
       role: m.role,
       text: String(m.text).replace(IMAGE_RE, (whole, alt, url) => {
@@ -1435,15 +1442,17 @@
         return `![Image ${info.n} — ${info.filename}](${info.filename})`;
       })
     }));
-    // Les data: URI non récupérées pollueraient les exports avec des
-    // mégaoctets de base64 : on les remplace par une mention courte.
-    const DATAURI_RE = /!\[[^\]]*\]\(data:[^)]{2000,}\)/g;
-    const cleaned = rewritten.map((m) => ({
-      role: m.role,
-      text: String(m.text).replace(DATAURI_RE, '[image — données intégrées non récupérées]')
-    }));
+    const cleaned = format === 'txt'
+      ? rewritten.map((m) => ({
+          role: m.role,
+          text: String(m.text).replace(
+            /!\[[^\]]*\]\(data:[^)]{2000,}\)/g,
+            '[image — intégrée dans les versions Markdown et PDF]'
+          )
+        }))
+      : rewritten;
     const images = Array.from(renames.entries())
-      .map(([url, info]) => ({ blob: blobs.get(url), filename: info.filename }));
+      .map(([url, info]) => ({ blob: fetchedMap.get(url), filename: info.filename }));
     return { messages: cleaned, images, seen: limited.length };
   }
 
@@ -1740,7 +1749,7 @@
           // Images affichées mais manquant des textes extraits (repli,
           // cartes d'aperçu) : ancrées à leur message quand c'est fiable.
           messages = harvestImages(messages, T.imagesSection, key);
-          const captured = await captureImages(messages, fileBaseName(platform));
+          const captured = await captureImages(messages, fileBaseName(platform), format);
           messages = captured.messages;
           imageFiles = captured.images;
           imagesSeen = captured.seen;
