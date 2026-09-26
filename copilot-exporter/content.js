@@ -80,6 +80,8 @@
       rawTitleTxt: (platform) => `CONVERSATION ${platform.toUpperCase()} (EXPORT BRUT)`,
       rawNote: "L'extraction structurée n'a pas trouvé les messages : voici le texte de la conversation tel qu'affiché.",
       rawBlock: (platform) => `Export brut de la conversation ${platform}`,
+      imagesSection: 'Images de la conversation',
+      imagesMissed: (seen, got) => `${seen} image(s) détectée(s), ${got} capturée(s) — certaines sont protégées par le site (CORS)`,
       unsupported: "Cet onglet n'est pas une conversation prise en charge (Copilot, ChatGPT, Claude ou Gemini).",
       pdfFailed: "La génération du PDF a échoué. Utilisez l'export Markdown en attendant."
     },
@@ -95,6 +97,8 @@
       rawTitleTxt: (platform) => `CONVERSATION WITH ${platform.toUpperCase()} (RAW EXPORT)`,
       rawNote: 'Structured extraction could not find the messages: here is the text of the conversation as displayed.',
       rawBlock: (platform) => `Raw export of the ${platform} conversation`,
+      imagesSection: 'Conversation images',
+      imagesMissed: (seen, got) => `${seen} image(s) detected, ${got} captured — some are protected by the site (CORS)`,
       unsupported: 'This tab is not a supported conversation (Copilot, ChatGPT, Claude or Gemini).',
       pdfFailed: 'PDF generation failed. Use the Markdown export in the meantime.'
     }
@@ -929,6 +933,7 @@
 
   // Télécharge les images référencées dans les messages (![alt](url)) et
   // réécrit les références vers les fichiers locaux.
+  // Renvoie { messages, images, seen } avec seen = images repérées.
   async function captureImages(messages, baseName) {
     const urls = [];
     for (const m of messages) {
@@ -936,11 +941,14 @@
         if (!urls.includes(match[2])) urls.push(match[2]);
       }
     }
-    if (urls.length === 0) return { messages, images: [] };
+    if (urls.length === 0) return { messages, images: [], seen: 0 };
 
     const limited = urls.slice(0, MAX_IMAGES);
     const blobs = new Map();
-    const fetched = await mapLimit(limited, FETCH_CONCURRENCY, (url) => fetchImageBlob(url));
+    const fetched = await mapLimit(limited, FETCH_CONCURRENCY, async (url) => {
+      // fetch d'abord, puis capture directe depuis l'élément affiché
+      return (await fetchImageBlob(url)) || (await captureViaElement(url));
+    });
     limited.forEach((url, i) => { if (fetched[i]) blobs.set(url, fetched[i]); });
 
     const renames = new Map();
@@ -966,33 +974,87 @@
     }));
     const images = Array.from(renames.entries())
       .map(([url, info]) => ({ blob: blobs.get(url), filename: info.filename }));
-    return { messages: rewritten, images };
+    return { messages: rewritten, images, seen: limited.length };
+  }
+
+  function bitmapToJpeg(bitmap, maxDim) {
+    const limit = maxDim || 1600;
+    const scale = Math.min(1, limit / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = typeof OffscreenCanvas !== 'undefined'
+      ? new OffscreenCanvas(w, h)
+      : Object.assign(document.createElement('canvas'), { width: w, height: h });
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; // l'alpha devient blanc (le JPEG n'en a pas)
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const blobPromise = canvas.convertToBlob
+      ? canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })
+      : new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    return blobPromise.then((blob) => (blob ? { blob, width: w, height: h } : null));
   }
 
   // Décode n'importe quel format d'image supporté par le navigateur et le
   // ré-encode en JPEG (prêt pour l'intégration directe dans le PDF).
-  async function toJpeg(blob, maxDim = 1600) {
+  async function toJpeg(blob, maxDim) {
     try {
       const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
-      const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
-      const w = Math.max(1, Math.round(bitmap.width * scale));
-      const h = Math.max(1, Math.round(bitmap.height * scale));
-      const canvas = typeof OffscreenCanvas !== 'undefined'
-        ? new OffscreenCanvas(w, h)
-        : Object.assign(document.createElement('canvas'), { width: w, height: h });
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#ffffff'; // l'alpha devient blanc (le JPEG n'en a pas)
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(bitmap, 0, 0, w, h);
+      const r = await bitmapToJpeg(bitmap, maxDim);
       bitmap.close();
-      const outBlob = canvas.convertToBlob
-        ? await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })
-        : await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
-      if (!outBlob) return null;
-      return { bytes: new Uint8Array(await outBlob.arrayBuffer()), width: w, height: h };
+      if (!r) return null;
+      return { bytes: new Uint8Array(await r.blob.arrayBuffer()), width: r.width, height: r.height };
     } catch (_) {
       return null;
     }
+  }
+
+  // Capture directe depuis l'élément <img> affiché dans la page (canvas
+  // local) : fonctionne pour les images de même origine — blob:, data:,
+  // même domaine — y compris quand fetch échoue.
+  async function captureViaElement(src) {
+    const root = conversationRoot() || document;
+    for (const img of root.querySelectorAll('img')) {
+      if ((img.getAttribute('src') || '') !== src) continue;
+      try {
+        const bitmap = await createImageBitmap(img);
+        const r = await bitmapToJpeg(bitmap);
+        bitmap.close();
+        if (r) return r.blob;
+      } catch (_) {
+        return null; // image cross-origin protégée (canvas souillé)
+      }
+    }
+    return null;
+  }
+
+  // Récolte les images affichées dans la conversation mais absentes des
+  // textes extraits (extracteurs en repli, cartes d'aperçu non rattachées) :
+  // les ajoute en section finale pour qu'elles suivent l'export.
+  function harvestImages(messages, sectionLabel) {
+    if (!messages || messages.length === 0) return messages;
+    const known = new Set();
+    for (const m of messages) {
+      for (const match of String(m.text).matchAll(IMAGE_RE)) known.add(match[2]);
+    }
+    const root = conversationRoot();
+    if (!root) return messages;
+    const seen = new Set();
+    const refs = [];
+    for (const img of root.querySelectorAll('img')) {
+      const src = img.getAttribute('src') || '';
+      if (!src || seen.has(src) || known.has(src)) continue;
+      if (/\.svg($|\?)/i.test(src) || /^data:image\/svg/i.test(src)) continue;
+      const w = img.naturalWidth || 0;
+      const h = img.naturalHeight || 0;
+      if (w && h && (w < 100 || h < 100)) continue;
+      seen.add(src);
+      refs.push(`![image](${src})`);
+    }
+    if (refs.length === 0) return messages;
+    const last = messages[messages.length - 1];
+    last.text += `\n\n---\n\n${sectionLabel}\n\n${refs.join('\n\n')}`;
+    return messages;
   }
 
   // ==================================================================
@@ -1106,14 +1168,19 @@
     let text;
     let imageFiles = [];
     let imageCount = 0;
+    let imagesSeen = 0;
     if (messages && messages.length > 0) {
       mode = 'structured';
       // Capture des images : fichiers séparés (md/txt) ou embarquées (pdf)
       if (options.images !== false) {
         try {
+          // Images affichées mais manquant des textes extraits (repli,
+          // cartes d'aperçu) : ajoutées en section finale.
+          messages = harvestImages(messages, T.imagesSection);
           const captured = await captureImages(messages, fileBaseName(platform));
           messages = captured.messages;
           imageFiles = captured.images;
+          imagesSeen = captured.seen;
         } catch (_) { /* les images restent des URL dans le texte */ }
       }
       text = format === 'txt'
@@ -1182,6 +1249,7 @@
       source,
       count: messages ? messages.length : 0,
       images: imageCount,
+      imagesSeen,
       filename,
       text,
       title: meta.title
