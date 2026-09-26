@@ -1037,23 +1037,40 @@
   // Éléments marqueurs « You said: / Copilot said: » dans le DOM (feuilles
   // au texte exact) — servent d'ancre pour replacer les images.
   const MARKER_ELEMENT_RE = /^(?:you said|vous avez dit|copilot said|copilot a dit)\s*:?\s*$/i;
+  const MARKER_USER_RE = /^(?:you said|vous avez dit)/i;
 
   function markerElements(root) {
     const out = [];
     for (const el of root.querySelectorAll('*')) {
       if (el.children.length === 0) {
         const t = (el.textContent || '').trim();
-        if (t && MARKER_ELEMENT_RE.test(t)) out.push(el);
+        if (t && MARKER_ELEMENT_RE.test(t)) {
+          out.push({ el, role: MARKER_USER_RE.test(t) ? 'user' : 'assistant' });
+        }
       }
     }
     return out;
   }
 
+  // Ancres de position : conteneurs de messages de la plateforme quand ils
+  // existent (Gemini), sinon marqueurs « You said:/Copilot said: ».
+  function anchorCandidates(root, platformKey) {
+    if (platformKey === 'gemini') {
+      return Array.from(root.querySelectorAll('user-query, model-response'))
+        .map((el) => ({
+          el,
+          role: el.tagName.toLowerCase() === 'user-query' ? 'user' : 'assistant'
+        }));
+    }
+    return markerElements(root);
+  }
+
   // Récolte les images affichées dans la conversation mais absentes des
-  // textes extraits, et ancre chacune à SON message (dernier marqueur qui
-  // la précède dans le DOM) pour qu'elle reste à sa place. Les images sans
-  // ancre fiable partent en section finale.
-  function harvestImages(messages, sectionLabel) {
+  // textes extraits, et ancre chacune à SON message via sa position dans le
+  // DOM. L'ancrage n'est utilisé que si les ancres s'alignent parfaitement
+  // avec les messages extraits (même nombre, mêmes rôles) ; sinon les
+  // images partent en section finale plutôt que d'être mal placées.
+  function harvestImages(messages, sectionLabel, platformKey) {
     if (!messages || messages.length === 0) return messages;
     const known = new Set();
     for (const m of messages) {
@@ -1062,7 +1079,10 @@
     const root = conversationRoot();
     if (!root) return messages;
 
-    const markers = markerElements(root);
+    const anchors = anchorCandidates(root, platformKey);
+    const aligned = anchors.length === messages.length &&
+      anchors.every((a, i) => a.role === messages[i].role);
+
     const trailing = [];
     const seen = new Set();
     for (const img of root.querySelectorAll('img')) {
@@ -1074,20 +1094,23 @@
       if (w && h && (w < 100 || h < 100)) continue;
       seen.add(src);
 
-      let anchor = -1;
-      for (let k = 0; k < markers.length; k++) {
-        if (markers[k].compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING) {
-          anchor = k;
-        } else {
-          break; // les marqueurs sont dans l'ordre du document
+      const ref = `![image](${src})`;
+      let placed = false;
+      if (aligned) {
+        let anchorIdx = -1;
+        for (let k = 0; k < anchors.length; k++) {
+          if (anchors[k].el.compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING) {
+            anchorIdx = k;
+          } else {
+            break; // les ancres sont dans l'ordre du document
+          }
+        }
+        if (anchorIdx >= 0) {
+          messages[anchorIdx].text += (messages[anchorIdx].text ? '\n\n' : '') + ref;
+          placed = true;
         }
       }
-      const ref = `![image](${src})`;
-      if (anchor >= 0 && anchor < messages.length) {
-        messages[anchor].text += (messages[anchor].text ? '\n\n' : '') + ref;
-      } else {
-        trailing.push(ref);
-      }
+      if (!placed) trailing.push(ref);
     }
     if (trailing.length > 0) {
       const last = messages[messages.length - 1];
@@ -1214,8 +1237,8 @@
       if (options.images !== false) {
         try {
           // Images affichées mais manquant des textes extraits (repli,
-          // cartes d'aperçu) : ajoutées en section finale.
-          messages = harvestImages(messages, T.imagesSection);
+          // cartes d'aperçu) : ancrées à leur message quand c'est fiable.
+          messages = harvestImages(messages, T.imagesSection, key);
           const captured = await captureImages(messages, fileBaseName(platform));
           messages = captured.messages;
           imageFiles = captured.images;
