@@ -444,6 +444,7 @@
   }
 
   let substrateDebug = null;
+  let copilotApiDebug = null;
 
   async function substrateToken() {
     try {
@@ -592,11 +593,13 @@
       } catch (_) { done(null); }
     });
     const attempts = [];
+    const fmt = (r, label) => (!r ? label + ':x'
+      : (r.ok ? label + ':ok' : label + ':' + (r.status || r.error || 'x')));
     let res = await relay('COPEX_PAGE_FETCH');
-    attempts.push(res && res.ok ? 'page:ok' : `page:${(res && res.status) || 'x'}`);
+    attempts.push(fmt(res, 'page'));
     if (!res || !res.ok) {
       const res2 = await relay('COPEX_FETCH');
-      attempts.push(res2 && res2.ok ? 'sw:ok' : `sw:${(res2 && res2.status) || 'x'}`);
+      attempts.push(fmt(res2, 'sw'));
       if (res2 && (res2.ok || res2.status)) res = res2;
     }
     if (!res || typeof res.ok !== 'boolean') {
@@ -729,6 +732,7 @@
 
   // API interne : historique complet en JSON (réflexions, images, sources).
   async function extractCopilotApi(T) {
+    copilotApiDebug = null;
     const cfg = SELECTORS.copilotApi;
     const match = location.pathname.match(cfg.urlPattern);
     if (!match) return null;
@@ -755,14 +759,15 @@
         res = await fetchWithTimeout(historyUrl, { headers: { accept: 'application/json' } });
       }
     } catch (_) {
+      copilotApiDebug = 'network';
       return null;
     }
-    if (!res.ok) return null;
+    if (!res.ok) { copilotApiDebug = 'http-' + res.status; return null; }
 
     let data;
-    try { data = await res.json(); } catch (_) { return null; }
+    try { data = await res.json(); } catch (_) { copilotApiDebug = 'bad-json'; return null; }
     const results = Array.isArray(data && data.results) ? data.results : [];
-    if (results.length === 0) return null;
+    if (results.length === 0) { copilotApiDebug = 'no-messages'; return null; }
 
     results.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 
@@ -1223,9 +1228,9 @@
   // Renvoie l'accumulateur des messages capturés.
   async function ensureFullyLoaded(platformKey, sweepFn, opts) {
     const o = opts || {};
-    const upMs = o.slowImages ? 550 : 260;
-    const downMs = o.slowImages ? 220 : 90;
-    const imgBudget = o.slowImages ? 1500 : 400;
+    const upMs = o.slowImages ? 900 : 260;
+    const downMs = o.slowImages ? 400 : 90;
+    const imgBudget = o.slowImages ? 2000 : 400;
 
     // Boutons « afficher plus / voir la suite » éventuels
     try {
@@ -1909,7 +1914,11 @@
       platformLabel: platform.label,
       mode,
       source,
-      apiDebug: (source !== 'api' && platform.apiFirst) ? substrateDebug : null,
+      apiDebug: (source !== 'api' && platform.apiFirst)
+        ? (key === 'copilot'
+            ? 'c/api:' + (copilotApiDebug || '?') + ' | substrate:' + (substrateDebug || '?')
+            : (substrateDebug || ''))
+        : null,
       count: messages ? messages.length : 0,
       images: imageCount,
       imagesSeen,
