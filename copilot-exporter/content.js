@@ -1435,9 +1435,16 @@
         return `![Image ${info.n} — ${info.filename}](${info.filename})`;
       })
     }));
+    // Les data: URI non récupérées pollueraient les exports avec des
+    // mégaoctets de base64 : on les remplace par une mention courte.
+    const DATAURI_RE = /!\[[^\]]*\]\(data:[^)]{2000,}\)/g;
+    const cleaned = rewritten.map((m) => ({
+      role: m.role,
+      text: String(m.text).replace(DATAURI_RE, '[image — données intégrées non récupérées]')
+    }));
     const images = Array.from(renames.entries())
       .map(([url, info]) => ({ blob: blobs.get(url), filename: info.filename }));
-    return { messages: rewritten, images, seen: limited.length };
+    return { messages: cleaned, images, seen: limited.length };
   }
 
   function bitmapToJpeg(bitmap, maxDim) {
