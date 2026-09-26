@@ -686,6 +686,56 @@
   }
 
   // ------------------------------------------------------------------
+  // Assemblage par recouvrement : fusionne une fenêtre capturée pendant le
+  // défilement avec l'accumulateur (contre les listes virtualisées qui ne
+  // gardent que la partie visible dans le DOM).
+  // ------------------------------------------------------------------
+  function sameMessage(a, b) {
+    return a && b && a.role === b.role && a.text === b.text;
+  }
+
+  function windowMatches(A, ia, B, ib, len) {
+    for (let i = 0; i < len; i++) {
+      if (!sameMessage(A[ia + i], B[ib + i])) return false;
+    }
+    return true;
+  }
+
+  // older=true : la fenêtre est PLUS ANCIENNE que l'accumulateur (on monte) ;
+  // older=false : plus récente (on descend). En l'absence de recouvrement
+  // exploitable, les messages déjà présents sont écartés (anti-doublons).
+  function mergeWindow(acc, win, older) {
+    if (!win || win.length === 0) return acc;
+    if (!acc || acc.length === 0) return win.slice();
+    const n = Math.min(win.length, acc.length);
+    if (older) {
+      for (let k = n; k > 0; k--) {
+        if (windowMatches(win, win.length - k, acc, 0, k)) {
+          return win.slice(0, win.length - k).concat(acc);
+        }
+      }
+      const existing = new Set(acc.map((m) => m.role + '§' + m.text));
+      return win.filter((m) => !existing.has(m.role + '§' + m.text)).concat(acc);
+    }
+    for (let k = n; k > 0; k--) {
+      if (windowMatches(win, 0, acc, acc.length - k, k)) {
+        return acc.concat(win.slice(k));
+      }
+    }
+    const existing = new Set(acc.map((m) => m.role + '§' + m.text));
+    return acc.concat(win.filter((m) => !existing.has(m.role + '§' + m.text)));
+  }
+
+  // Fonction d'extraction légère utilisée pendant le balayage (une par pas
+  // de défilement) : analyse des marqueurs pour la plupart des plateformes,
+  // extracteur natif pour Gemini.
+  function sweepExtractFn(key) {
+    if (key === 'gemini') return () => extractGemini();
+    if (key === 'claude') return () => extractClaude();
+    return () => extractFromMarkers();
+  }
+
+  // ------------------------------------------------------------------
   // Stratégie de repli universelle : découpage du texte de la page sur les
   // marqueurs d'accessibilité « You said: / Copilot said: » (EN et FR).
   // Sauve les export quand l'interface a changé mais que le texte est là.
@@ -773,11 +823,12 @@
     );
   }
 
-  // Défilement complet pour forcer le chargement de TOUT l'historique :
-  // 1. remontée progressive (déclenche le chargement paresseux),
-  // 2. attente en haut que la hauteur se stabilise (chargement par lots),
-  // 3. redescente intégrale pour forcer le rendu de chaque section.
-  async function ensureFullyLoaded(platformKey) {
+  // Défilement complet pour charger tout l'historique ET balayer la
+  // conversation au passage : chaque fenêtre rendue est extraite puis
+  // fusionnée par recouvrement — indispensable quand la liste est
+  // virtualisée (le DOM ne contient jamais tout à la fois).
+  // Renvoie l'accumulateur des messages capturés.
+  async function ensureFullyLoaded(platformKey, sweepFn) {
     // Boutons « afficher plus / voir la suite » éventuels
     try {
       for (const btn of document.querySelectorAll('button, [role="button"]')) {
@@ -807,12 +858,23 @@
     const getHeight = () => (target ? target.scrollHeight : document.body.scrollHeight);
     const step = Math.max(200, (target ? target.clientHeight : window.innerHeight) * 0.8);
 
-    const before = getTop();
+    let acc = [];
+    const absorb = (older) => {
+      if (!sweepFn) return;
+      try {
+        acc = mergeWindow(acc, sweepFn(), older);
+      } catch (_) { /* fenêtre illisible : on continue */ }
+    };
 
-    // Phase 1 : remontée progressive jusqu'en haut
-    for (let i = 0; i < 150 && getTop() > 0; i++) {
+    const before = getTop();
+    absorb(false); // fenêtre de départ (position actuelle)
+
+    // Phase 1 : remontée progressive jusqu'en haut — les fenêtres
+    // capturées sont de plus en plus anciennes
+    for (let i = 0; i < 200 && getTop() > 0; i++) {
       setTop(Math.max(0, getTop() - step));
       await sleep(260);
+      absorb(true);
     }
     // Phase 2 : en haut, attendre la fin des chargements par lots
     // (petit aller-retour pour déclencher les écouteurs de défilement)
@@ -825,18 +887,22 @@
       await sleep(60);
       setTop(0);
       await sleep(250);
+      absorb(true);
       const h = getHeight();
       if (h === last) stable++;
       else { stable = 0; last = h; }
     }
-    // Phase 3 : redescente pour forcer le rendu de chaque section
+    // Phase 3 : redescente pour forcer le rendu de chaque section — les
+    // fenêtres capturées sont de plus en plus récentes
     const total = getHeight();
     for (let pos = step; pos < total; pos += step) {
       setTop(pos);
       await sleep(90);
+      absorb(false);
     }
     setTop(before);
     await sleep(600); // laisse le rendu paresseux se stabiliser
+    return acc;
   }
 
   // ==================================================================
@@ -1242,11 +1308,15 @@
       try { messages = await extractCopilotApi(T); } catch (_) { messages = null; }
     }
 
-    // Stratégie 2 : extracteurs DOM de la plateforme.
+    // Stratégie 2 : extracteurs DOM de la plateforme, complétés par le
+    // balayage au défilement (indispensable aux listes virtualisées).
     if (!messages || messages.length === 0) {
       source = 'dom';
+      let swept = null;
       if (options.scroll) {
-        try { await ensureFullyLoaded(key); } catch (_) { /* non bloquant */ }
+        try {
+          swept = await ensureFullyLoaded(key, sweepExtractFn(key));
+        } catch (_) { /* non bloquant */ }
       }
       for (const name of platform.extractors) {
         const fn = EXTRACTOR_FUNCTIONS[name];
@@ -1262,6 +1332,10 @@
       // Copilot said: » présents dans le rendu d'accessibilité de la page.
       if (!messages || messages.length === 0) {
         try { messages = extractFromMarkers(); } catch (_) { messages = []; }
+      }
+      // Si le balayage a capturé davantage de messages, c'est lui qui gagne.
+      if (swept && swept.length > (messages || []).length) {
+        messages = swept;
       }
     }
 

@@ -83,7 +83,11 @@ Chaîne de stratégies, de la plus fiable à la plus générique :
    et sources citées incluses.
 2. **DOM spécifique à chaque plateforme** (ChatGPT, Claude, Gemini, Copilot)
    puis reconversion en Markdown (titres, listes, blocs de code, tableaux).
-3. **Mode brut** (repli) : texte complet de la zone de conversation.
+3. **Balayage au défilement** pour les conversations longues : l'extension
+   fait défiler la page et assemble chaque fenêtre rendue par
+   recouvrement — indispensable quand la liste est virtualisée (le DOM ne
+   contient jamais toute la conversation à la fois).
+4. **Mode brut** (repli) : texte complet de la zone de conversation.
 
 Le PDF est généré par un **moteur PDF autonome** intégré (PDF 1.4, polices
 standard) : texte sélectionnable, fichiers légers, pagination, numéros de
@@ -179,7 +183,11 @@ Strategies, from most to least reliable:
    included.
 2. **Per-platform DOM extraction** (ChatGPT, Claude, Gemini, Copilot),
    converted back to Markdown (headings, lists, code blocks, tables).
-3. **Raw mode** (fallback): full text of the conversation area.
+3. **Scroll sweep for long conversations**: the extension scrolls the page
+   and assembles every rendered window by overlap — essential when the
+   message list is virtualized (the DOM never holds the whole conversation
+   at once).
+4. **Raw mode** (fallback): full text of the conversation area.
 
 The PDF is produced by a **built-in dependency-free PDF engine** (PDF 1.4,
 standard fonts): selectable text, lightweight files, pagination, page
