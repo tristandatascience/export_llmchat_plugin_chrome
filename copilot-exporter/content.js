@@ -352,7 +352,14 @@
       case 'table': return tableMd(node);
       case 'hr': return '---';
       case 'br': return '';
-      case 'svg': case 'img': case 'style': case 'script': case 'button':
+      case 'img': {
+        // Image posée directement (hors paragraphe) : référence Markdown
+        const src = node.getAttribute('src') || '';
+        const alt = node.getAttribute('alt') || 'image';
+        const isSvg = /\.svg($|\?)/i.test(src) || /^data:image\/svg/i.test(src);
+        return src && !isSvg ? `![${alt}](${src})` : '';
+      }
+      case 'svg': case 'style': case 'script': case 'button':
       case 'cib-attachment-chips': case 'cib-shared-conversation-footer-bar':
         return '';
       default:
@@ -644,17 +651,22 @@
         if (userImgs) text += (text ? '\n\n' : '') + userImgs;
         if (text) messages.push({ role: 'user', text });
       } else {
-        const container = node.querySelector(cfg.assistantContent) || node;
+        // Zones de texte de la réponse, où qu'elles soient dans le nœud
+        // (la nouvelle interface « islands » de Gemini peut les déplacer).
         let text = '';
-        for (const md of container.querySelectorAll(cfg.assistantMarkdown)) {
+        for (const md of node.querySelectorAll('.markdown')) {
           const part = domToMarkdown(cleanClone(md));
           if (part) text += (text ? '\n\n' : '') + part;
         }
-        // Images générées affichées hors de la zone markdown (Gemini les
-        // place dans des cartes d'aperçu voisines)
-        const extraImgs = collectImgRefs(container, cfg.assistantMarkdown);
+        if (!text) {
+          const mc = node.querySelector(cfg.assistantContent);
+          if (mc) text = deepInnerText(mc).trim();
+        }
+        // Images de TOUTE la réponse : Gemini place les images générées dans
+        // des cartes d'aperçu sœurs de message-content (URLs blob:).
+        const extraImgs = collectImgRefs(node, cfg.assistantMarkdown);
         if (extraImgs) text += (text ? '\n\n' : '') + extraImgs;
-        if (!text) text = stripNoise(deepInnerText(container).trim());
+        if (!text) text = stripNoise(deepInnerText(node).trim());
         if (text) messages.push({ role: 'assistant', text: stripNoise(text) });
       }
     }
@@ -720,7 +732,7 @@
       if (h === last) stable++; else { stable = 0; last = h; }
     }
     setTop(before);
-    await sleep(200);
+    await sleep(600); // laisse le rendu paresseux (islands, virtualisation) se stabiliser
   }
 
   // ==================================================================
