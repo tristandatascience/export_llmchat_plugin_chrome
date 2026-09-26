@@ -394,14 +394,19 @@
       .trim();
   }
 
+  // Une ligne est-elle du bruit d'interface ? (comparaison normalisée :
+  // apostrophes typographiques ramenées à l'apostrophe ASCII)
+  function noiseLine(line) {
+    const norm = String(line).trim().toLowerCase()
+      .replace(/\u2019/g, "'")
+      .replace(/[.:…]+$/, '');
+    return norm === '' || NOISE_WORDS.includes(norm);
+  }
+
   // Retire les petites lignes d'interface (boutons Copier, etc.) en fin de texte.
   function stripNoise(text) {
     const lines = text.split('\n');
-    while (lines.length > 0) {
-      const last = lines[lines.length - 1].trim().toLowerCase().replace(/[.:…]+$/, '');
-      if (last === '' || NOISE_WORDS.includes(last)) lines.pop();
-      else break;
-    }
+    while (lines.length > 0 && noiseLine(lines[lines.length - 1])) lines.pop();
     return lines.join('\n').trim();
   }
 
@@ -1029,9 +1034,25 @@
     return null;
   }
 
+  // Éléments marqueurs « You said: / Copilot said: » dans le DOM (feuilles
+  // au texte exact) — servent d'ancre pour replacer les images.
+  const MARKER_ELEMENT_RE = /^(?:you said|vous avez dit|copilot said|copilot a dit)\s*:?\s*$/i;
+
+  function markerElements(root) {
+    const out = [];
+    for (const el of root.querySelectorAll('*')) {
+      if (el.children.length === 0) {
+        const t = (el.textContent || '').trim();
+        if (t && MARKER_ELEMENT_RE.test(t)) out.push(el);
+      }
+    }
+    return out;
+  }
+
   // Récolte les images affichées dans la conversation mais absentes des
-  // textes extraits (extracteurs en repli, cartes d'aperçu non rattachées) :
-  // les ajoute en section finale pour qu'elles suivent l'export.
+  // textes extraits, et ancre chacune à SON message (dernier marqueur qui
+  // la précède dans le DOM) pour qu'elle reste à sa place. Les images sans
+  // ancre fiable partent en section finale.
   function harvestImages(messages, sectionLabel) {
     if (!messages || messages.length === 0) return messages;
     const known = new Set();
@@ -1040,8 +1061,10 @@
     }
     const root = conversationRoot();
     if (!root) return messages;
+
+    const markers = markerElements(root);
+    const trailing = [];
     const seen = new Set();
-    const refs = [];
     for (const img of root.querySelectorAll('img')) {
       const src = img.getAttribute('src') || '';
       if (!src || seen.has(src) || known.has(src)) continue;
@@ -1050,11 +1073,26 @@
       const h = img.naturalHeight || 0;
       if (w && h && (w < 100 || h < 100)) continue;
       seen.add(src);
-      refs.push(`![image](${src})`);
+
+      let anchor = -1;
+      for (let k = 0; k < markers.length; k++) {
+        if (markers[k].compareDocumentPosition(img) & Node.DOCUMENT_POSITION_FOLLOWING) {
+          anchor = k;
+        } else {
+          break; // les marqueurs sont dans l'ordre du document
+        }
+      }
+      const ref = `![image](${src})`;
+      if (anchor >= 0 && anchor < messages.length) {
+        messages[anchor].text += (messages[anchor].text ? '\n\n' : '') + ref;
+      } else {
+        trailing.push(ref);
+      }
     }
-    if (refs.length === 0) return messages;
-    const last = messages[messages.length - 1];
-    last.text += `\n\n---\n\n${sectionLabel}\n\n${refs.join('\n\n')}`;
+    if (trailing.length > 0) {
+      const last = messages[messages.length - 1];
+      last.text += `\n\n---\n\n${sectionLabel}\n\n${trailing.join('\n\n')}`;
+    }
     return messages;
   }
 
