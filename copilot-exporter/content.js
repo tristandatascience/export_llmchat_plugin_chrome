@@ -576,23 +576,29 @@
       headers['x-anchormailbox'] = `Oid:${account.oid}@${account.tenant}`;
     }
 
-    // Les scripts de contenu ne contournent pas le CORS (Chrome 85+) : la
-    // requête passe par le service worker de l'extension, qui bénéficie des
-    // host_permissions. Repli en fetch direct si le relais est absent.
-    let res = null;
-    try {
-      res = await new Promise((resolve) => {
-        let settled = false;
-        const done = (v) => { if (!settled) { settled = true; resolve(v); } };
-        try {
-          chrome.runtime.sendMessage({ type: 'COPEX_FETCH', url, headers }, (resp) => {
-            if (chrome.runtime.lastError) { done(null); return; }
-            done(resp || null);
-          });
-          setTimeout(() => done(null), 30000);
-        } catch (_) { done(null); }
-      });
-    } catch (_) { res = null; }
+    // Les scripts de contenu ne contournent pas le CORS (Chrome 85+). Trois
+    // chemins, du plus natif au plus Direct : fetch DANS LE MONDE DE LA
+    // PAGE (même origine que les appels du site — certaines API vérifient
+    // l'origine), relais service worker (host_permissions), fetch direct.
+    const relay = (type) => new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+      try {
+        chrome.runtime.sendMessage({ type, url, headers }, (resp) => {
+          if (chrome.runtime.lastError) { done(null); return; }
+          done(resp || null);
+        });
+        setTimeout(() => done(null), 30000);
+      } catch (_) { done(null); }
+    });
+    const attempts = [];
+    let res = await relay('COPEX_PAGE_FETCH');
+    attempts.push(res && res.ok ? 'page:ok' : `page:${(res && res.status) || 'x'}`);
+    if (!res || !res.ok) {
+      const res2 = await relay('COPEX_FETCH');
+      attempts.push(res2 && res2.ok ? 'sw:ok' : `sw:${(res2 && res2.status) || 'x'}`);
+      if (res2 && (res2.ok || res2.status)) res = res2;
+    }
     if (!res || typeof res.ok !== 'boolean') {
       // Repli : fetch direct depuis l'onglet (peut échouer au CORS)
       const controller = new AbortController();
@@ -601,13 +607,16 @@
         const r = await fetch(url, { headers, credentials: 'include', signal: controller.signal });
         res = { ok: r.ok, status: r.status, text: await r.text() };
       } catch (_) {
-        substrateDebug = 'network';
+        substrateDebug = `network [${attempts.join(' / ')}]`;
         return null;
       } finally {
         clearTimeout(timer);
       }
     }
-    if (!res.ok) { substrateDebug = 'http-' + res.status; return null; }
+    if (!res.ok) {
+      substrateDebug = `http-${res.status} [${attempts.join(' / ')}]`;
+      return null;
+    }
 
     let data;
     try { data = JSON.parse(res.text); } catch (_) { substrateDebug = 'bad-json'; return null; }
