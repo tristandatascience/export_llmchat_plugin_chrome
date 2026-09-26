@@ -1323,56 +1323,66 @@
       } catch (_) { /* fenêtre illisible : on continue */ }
     };
 
-    const before = getTop();
-    await absorb(false); // fenêtre de départ (position actuelle)
+    // Dézoomer la page pendant le balayage (équivalent Ctrl+ -) : chaque
+    // écran affiche davantage de contenu, donc moins de fenêtres
+    // virtualisées à parcourir et un rendu plus rapide. Restauré à la fin.
+    const htmlEl = document.documentElement;
+    const prevZoom = htmlEl.style.zoom;
+    htmlEl.style.zoom = o.slowImages ? '0.5' : '0.6';
+    try {
+      const before = getTop();
+      await absorb(false); // fenêtre de départ (position actuelle)
 
-    // Phase 1 : remontée progressive jusqu'en haut — les fenêtres
-    // capturées sont de plus en plus anciennes. Pas plus dense en mode
-    // lent pour ne pas sauter de sections.
-    const stepUp = o.slowImages ? step * 0.6 : step;
-    for (let i = 0; i < 300 && getTop() > 0; i++) {
-      setTop(Math.max(0, getTop() - stepUp));
-      await sleep(upMs);
-      await absorb(true);
-    }
-    // Phase 2 : en haut, attendre la fin des chargements par lots
-    // (petit aller-retour pour déclencher les écouteurs de défilement)
-    let last = -1;
-    let stable = 0;
-    for (let i = 0; i < 100 && stable < 6; i++) {
-      setTop(0);
-      await sleep(250);
-      setTop(Math.min(80, Math.max(0, getHeight() - 1)));
-      await sleep(60);
-      setTop(0);
-      await sleep(250);
-      await absorb(true);
-      const h = getHeight();
-      if (h === last) stable++;
-      else { stable = 0; last = h; }
-    }
-    // Phase 3 : redescente dense pour forcer le rendu de CHAQUE section —
-    // c'est ici que le milieu d'une longue conversation se matérialise.
-    // En mode lent : pas resserré, double capture par pas (le rendu peut
-    // arriver avec retard) et seconde passe complète.
-    const descend = async (dense) => {
-      const stepDown = dense ? step * 0.4 : step * 0.6;
-      const total = getHeight();
-      for (let pos = stepDown; pos < total; pos += stepDown) {
-        setTop(pos);
-        await sleep(downMs);
-        await absorb(false);
-        if (dense) {
-          await sleep(Math.max(120, downMs / 2));
-          await absorb(false);
-        }
+      // Phase 1 : remontée progressive jusqu'en haut — les fenêtres
+      // capturées sont de plus en plus anciennes. Pas plus dense en mode
+      // lent pour ne pas sauter de sections.
+      const stepUp = o.slowImages ? step * 0.6 : step;
+      for (let i = 0; i < 300 && getTop() > 0; i++) {
+        setTop(Math.max(0, getTop() - stepUp));
+        await sleep(upMs);
+        await absorb(true);
       }
-    };
-    await descend(false);
-    if (o.slowImages) {
-      await descend(true);
+      // Phase 2 : en haut, attendre la fin des chargements par lots
+      // (petit aller-retour pour déclencher les écouteurs de défilement)
+      let last = -1;
+      let stable = 0;
+      for (let i = 0; i < 100 && stable < 6; i++) {
+        setTop(0);
+        await sleep(250);
+        setTop(Math.min(80, Math.max(0, getHeight() - 1)));
+        await sleep(60);
+        setTop(0);
+        await sleep(250);
+        await absorb(true);
+        const h = getHeight();
+        if (h === last) stable++;
+        else { stable = 0; last = h; }
+      }
+      // Phase 3 : redescente dense pour forcer le rendu de CHAQUE section —
+      // c'est ici que le milieu d'une longue conversation se matérialise.
+      // En mode lent : pas resserré, double capture par pas (le rendu peut
+      // arriver avec retard) et seconde passe complète.
+      const descend = async (dense) => {
+        const stepDown = dense ? step * 0.4 : step * 0.6;
+        const total = getHeight();
+        for (let pos = stepDown; pos < total; pos += stepDown) {
+          setTop(pos);
+          await sleep(downMs);
+          await absorb(false);
+          if (dense) {
+            await sleep(Math.max(120, downMs / 2));
+            await absorb(false);
+          }
+        }
+      };
+      await descend(false);
+      if (o.slowImages) {
+        await descend(true);
+      }
+      setTop(before);
+    } finally {
+      htmlEl.style.zoom = prevZoom;
     }
-    setTop(before);
     await sleep(600); // laisse le rendu paresseux se stabiliser
     return { messages: acc, images: imgByMsg };
   }
