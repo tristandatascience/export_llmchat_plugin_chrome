@@ -482,7 +482,13 @@
 
       const raw = localStorage.getItem(entry);
       if (!raw) { substrateDebug = 'no-token-entry'; return null; }
-      const payload = JSON.parse(raw).payload;
+      const parsed = JSON.parse(raw);
+      // Format non chiffré (MSAL récent) : le jeton est directement dans
+      // .secret, sans enveloppe {nonce, data}.
+      if (parsed && typeof parsed.secret === 'string' && parsed.secret.length > 20) {
+        return parsed.secret;
+      }
+      const payload = parsed.payload;
       if (!payload || !payload.nonce || !payload.data) { substrateDebug = 'bad-payload'; return null; }
 
       const cookie = document.cookie.split('; ')
