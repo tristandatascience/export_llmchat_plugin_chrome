@@ -707,6 +707,55 @@
     return m.role + '§' + normText(m.text);
   }
 
+  // Repli quand aucune correspondance par recouvrement : insère les messages
+  // nouveaux de la fenêtre ENTRE leurs voisins connus déjà présents dans
+  // l'accumulateur (une fenêtre peut tomber entre deux blocs assemblés).
+  // older ne sert plus que si AUCUN message de la fenêtre n'est connu.
+  function insertAround(acc, win, older) {
+    const indexByKey = new Map(acc.map((m, i) => [messageKey(m), i]));
+    // Découpe la fenêtre : plages de messages nouveaux entre messages connus
+    const insertions = []; // { after: idx | -1, before: idx | null, msgs }
+    let prevKnownIdx = -1;
+    let run = [];
+    let anyKnown = false;
+    const flush = (nextKnownIdx) => {
+      if (run.length > 0) {
+        insertions.push({ after: prevKnownIdx, before: nextKnownIdx, msgs: run });
+        run = [];
+      }
+    };
+    for (const m of win) {
+      const idx = indexByKey.get(messageKey(m));
+      if (idx === undefined) {
+        run.push(m);
+      } else {
+        flush(idx);
+        prevKnownIdx = idx;
+        anyKnown = true;
+      }
+    }
+    flush(null);
+    if (insertions.length === 0) return acc;
+    if (!anyKnown) {
+      // Aucun repère : sens du défilement
+      const fresh = insertions.flatMap((i) => i.msgs);
+      return older ? fresh.concat(acc) : acc.concat(fresh);
+    }
+    // Applique les insertions de la plus à droite à la plus à gauche
+    const position = (ins) => {
+      if (ins.after >= 0) return ins.after + 1; // juste après le voisin connu
+      if (ins.before !== null && ins.before !== undefined) return ins.before;
+      return acc.length; // après le dernier connu : fin d'accumulateur
+    };
+    let out = acc;
+    const ordered = insertions.slice().sort((a, b) => position(b) - position(a));
+    for (const ins of ordered) {
+      const at = position(ins);
+      out = out.slice(0, at).concat(ins.msgs, out.slice(at));
+    }
+    return out;
+  }
+
   function windowMatches(A, ia, B, ib, len) {
     for (let i = 0; i < len; i++) {
       if (!sameMessage(A[ia + i], B[ib + i])) return false;
@@ -716,7 +765,7 @@
 
   // older=true : la fenêtre est PLUS ANCIENNE que l'accumulateur (on monte) ;
   // older=false : plus récente (on descend). En l'absence de recouvrement
-  // exploitable, les messages déjà présents sont écartés (anti-doublons).
+  // exploitable, insertion ancrée sur un message connu (anti-doublons).
   function mergeWindow(acc, win, older) {
     if (!win || win.length === 0) return acc;
     if (!acc || acc.length === 0) return win.slice();
@@ -727,8 +776,7 @@
           return win.slice(0, win.length - k).concat(acc);
         }
       }
-      const existing = new Set(acc.map(messageKey));
-      return win.filter((m) => !existing.has(messageKey(m))).concat(acc);
+      return insertAround(acc, win, true);
     }
     for (let k = n; k > 0; k--) {
       if (windowMatches(win, 0, acc, acc.length - k, k)) {
@@ -737,8 +785,7 @@
         return acc.slice(0, acc.length - k).concat(win);
       }
     }
-    const existing = new Set(acc.map(messageKey));
-    return acc.concat(win.filter((m) => !existing.has(messageKey(m))));
+    return insertAround(acc, win, false);
   }
 
   // Attend (dans la limite du budget) que les images visibles de la fenêtre
@@ -902,16 +949,36 @@
     const step = Math.max(200, (target ? target.clientHeight : window.innerHeight) * 0.8);
 
     let acc = [];
+    // Images rencontrées au fil du balayage : normText du message -> [src].
+    // Collectées à part pour ne PAS faire varier les textes fusionnés
+    // (l'assemblage par recouvrement exige des textes stables).
+    const imgByMsg = new Map();
     const absorb = async (older) => {
       if (!sweepFn) return;
       // Laisse d'abord les images visibles finir de charger
       await waitForVisibleImages(imgBudget);
       try {
-        let msgs = sweepFn();
-        if (msgs && msgs.length > 0 && o.imagesSection) {
-          msgs = harvestImages(msgs, o.imagesSection, platformKey);
+        const msgs = sweepFn();
+        if (msgs && msgs.length > 0) {
+          if (o.imagesSection) {
+            // Sonde : détermine à quels messages de la fenêtre se
+            // rattachent les images, sans modifier les textes fusionnés.
+            try {
+              const probe = msgs.map((m) => ({ role: m.role, text: m.text }));
+              harvestImages(probe, o.imagesSection, platformKey);
+              for (let i = 0; i < probe.length; i++) {
+                const refs = Array.from(String(probe[i].text).matchAll(IMAGE_RE))
+                  .map((x) => x[2]);
+                if (!refs.length) continue;
+                const key = normText(msgs[i].text);
+                const list = imgByMsg.get(key) || [];
+                for (const r of refs) if (!list.includes(r)) list.push(r);
+                imgByMsg.set(key, list);
+              }
+            } catch (_) { /* images de fenêtre indisponibles */ }
+          }
+          acc = mergeWindow(acc, msgs, older);
         }
-        acc = mergeWindow(acc, msgs, older);
       } catch (_) { /* fenêtre illisible : on continue */ }
     };
 
@@ -951,7 +1018,7 @@
     }
     setTop(before);
     await sleep(600); // laisse le rendu paresseux se stabiliser
-    return acc;
+    return { messages: acc, images: imgByMsg };
   }
 
   // ==================================================================
@@ -1386,8 +1453,21 @@
         try { messages = extractFromMarkers(); } catch (_) { messages = []; }
       }
       // Si le balayage a capturé davantage de messages, c'est lui qui gagne.
-      if (swept && swept.length > (messages || []).length) {
-        messages = swept;
+      if (swept && swept.messages && swept.messages.length > (messages || []).length) {
+        messages = swept.messages;
+        // Réapplique les images collectées au fil du balayage sur les
+        // messages assemblés (par texte normalisé).
+        if (swept.images && swept.images.size > 0) {
+          for (const m of messages) {
+            const refs = swept.images.get(normText(m.text));
+            if (!refs || refs.length === 0) continue;
+            const have = new Set(Array.from(String(m.text).matchAll(IMAGE_RE)).map((x) => x[2]));
+            const add = refs.filter((r) => !have.has(r));
+            if (add.length > 0) {
+              m.text += '\n\n' + add.map((r) => `![image](${r})`).join('\n\n');
+            }
+          }
+        }
       }
     }
 
