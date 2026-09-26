@@ -443,21 +443,23 @@
     return out;
   }
 
+  let substrateDebug = null;
+
   async function substrateToken() {
     try {
       const keysRaw = localStorage.getItem(`msal.3.token.keys.${SUBSTRATE.clientId}`);
-      if (!keysRaw) return null;
+      if (!keysRaw) { substrateDebug = 'no-msal-keys'; return null; }
       const keys = JSON.parse(keysRaw);
       const entry = (keys.accessToken || []).find((k) => k.includes(SUBSTRATE.scope));
-      if (!entry) return null;
+      if (!entry) { substrateDebug = 'no-sydney-token'; return null; }
       const raw = localStorage.getItem(entry);
-      if (!raw) return null;
+      if (!raw) { substrateDebug = 'no-token-entry'; return null; }
       const payload = JSON.parse(raw).payload;
-      if (!payload || !payload.nonce || !payload.data) return null;
+      if (!payload || !payload.nonce || !payload.data) { substrateDebug = 'bad-payload'; return null; }
 
       const cookie = document.cookie.split('; ')
         .find((c) => c.startsWith('msal.cache.encryption='));
-      if (!cookie) return null;
+      if (!cookie) { substrateDebug = 'no-encryption-cookie'; return null; }
       const cookieValue = decodeURIComponent(cookie.split('=').slice(1).join('='));
       const baseKey = JSON.parse(cookieValue).key;
 
@@ -484,6 +486,7 @@
       const secret = JSON.parse(new TextDecoder().decode(plain)).secret;
       return secret || null;
     } catch (_) {
+      substrateDebug = 'decrypt-failed';
       return null;
     }
   }
@@ -503,11 +506,12 @@
   }
 
   async function extractSubstrateApi(T) {
+    substrateDebug = null;
     const match = location.pathname.match(/\/(?:chat\/conversation|chats?)\/([A-Za-z0-9_-]+)/i);
-    if (!match) return null;
+    if (!match) { substrateDebug = 'no-conversation-id'; return null; }
     const token = await substrateToken();
     const account = substrateAccount();
-    if (!token || !account) return null;
+    if (!token || !account) { if (!substrateDebug) substrateDebug = 'no-account'; return null; }
 
     const request = {
       conversationId: match[1],
@@ -532,18 +536,19 @@
     try {
       res = await fetch(url, { headers, credentials: 'include', signal: controller.signal });
     } catch (_) {
+      substrateDebug = 'network';
       return null;
     } finally {
       clearTimeout(timer);
     }
-    if (!res.ok) return null;
+    if (!res.ok) { substrateDebug = 'http-' + res.status; return null; }
 
     let data;
-    try { data = await res.json(); } catch (_) { return null; }
+    try { data = await res.json(); } catch (_) { substrateDebug = 'bad-json'; return null; }
     const list = data && data.source && Array.isArray(data.source.messages)
       ? data.source.messages
       : [];
-    if (list.length === 0) return null;
+    if (list.length === 0) { substrateDebug = 'no-messages'; return null; }
 
     const messages = [];
     const citations = [];
@@ -1819,6 +1824,7 @@
       platformLabel: platform.label,
       mode,
       source,
+      apiDebug: (source !== 'api' && platform.apiFirst) ? substrateDebug : null,
       count: messages ? messages.length : 0,
       images: imageCount,
       imagesSeen,

@@ -62,6 +62,7 @@ const I18N = {
     donate: 'Offrir un café',
     imagesDone: (n) => `🖼️ ${n} image(s) incluse(s) dans l'export`,
     imagesMissed: (seen, got) => `⚠️ ${seen} image(s) détectée(s), ${got} capturée(s) — certaines sont protégées par le site (CORS)`,
+    apiDebugNote: (r) => `🔌 API interne indisponible (${r}) — repli sur la lecture de la page`,
     reading: 'Lecture de la conversation en cours…',
     noTab: 'Aucun onglet actif.',
     invalidResponse: 'Réponse invalide du content script.',
@@ -94,6 +95,7 @@ const I18N = {
     donate: 'Buy me a coffee',
     imagesDone: (n) => `🖼️ ${n} image(s) included in the export`,
     imagesMissed: (seen, got) => `⚠️ ${seen} image(s) detected, ${got} captured — some are protected by the site (CORS)`,
+    apiDebugNote: (r) => `🔌 Internal API unavailable (${r}) — falling back to page reading`,
     reading: 'Reading the conversation…',
     noTab: 'No active tab.',
     invalidResponse: 'Invalid response from the content script.',
@@ -262,6 +264,8 @@ async function doExport(format) {
 
     const label = response.platformLabel || '';
     const imagesNote = response.images > 0 ? '\n' + T.imagesDone(response.images) : '';
+    const apiNote = response.apiDebug ? '
+' + T.apiDebugNote(response.apiDebug) : '';
     const missedNote = (response.imagesSeen || 0) > (response.images || 0)
       ? '\n' + T.imagesMissed(response.imagesSeen, response.images) : '';
     if (format === 'copy') {
@@ -270,7 +274,7 @@ async function doExport(format) {
       setStatus('ok', T.copied(label, response.count || T.rawLabel, via));
     } else if (response.mode === 'structured') {
       const via = response.source === 'api' ? T.viaApi : T.viaDom;
-      setStatus('ok', T.ok(label, response.count, via, response.filename) + imagesNote + missedNote);
+      setStatus('ok', T.ok(label, response.count, via, response.filename) + imagesNote + missedNote + apiNote);
     } else {
       setStatus('warn', T.raw(label, response.filename));
     }
