@@ -167,6 +167,9 @@
     'bonne réponse', 'good response', 'mauvaise réponse', 'bad response',
     'partager', 'share', 'plus', 'more', 'voir plus', 'see more',
     'exécuter', 'run', 'exécuter le code', 'you said', 'chatgpt said',
+    'message copilot', 'message chatgpt', 'message claude', 'message gemini',
+    'appuyez sur tabulation pour accéder aux boutons épingler et autres options',
+    'il est possible que le contenu généré par l\'ia soit incorrect',
     'afficher l\'historique des conversations', 'nouvelle conversation',
     'new conversation'
   ];
@@ -673,6 +676,45 @@
     return messages;
   }
 
+  // ------------------------------------------------------------------
+  // Stratégie de repli universelle : découpage du texte de la page sur les
+  // marqueurs d'accessibilité « You said: / Copilot said: » (EN et FR).
+  // Sauve les export quand l'interface a changé mais que le texte est là.
+  // ------------------------------------------------------------------
+  const SAID_MARKERS = [
+    { role: 'user', re: /^(?:you said|vous avez dit|vous avez envoyé)\s*:?\s*$/i },
+    { role: 'assistant', re: /^(?:copilot said|copilot a dit|chatgpt said|chatgpt a dit|claude said|claude a dit|gemini said|gemini a dit)\s*:?\s*$/i }
+  ];
+
+  function extractFromMarkers() {
+    const text = deepInnerText(conversationRoot()).trim();
+    if (!text) return [];
+    const messages = [];
+    let current = null;
+    const flush = () => {
+      if (current) {
+        const t = stripNoise(current.lines.join('\n'));
+        if (t) messages.push({ role: current.role, text: t });
+      }
+      current = null;
+    };
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim();
+      let matched = false;
+      for (const marker of SAID_MARKERS) {
+        if (marker.re.test(line)) {
+          flush();
+          current = { role: marker.role, lines: [] };
+          matched = true;
+          break;
+        }
+      }
+      if (!matched && current) current.lines.push(rawLine);
+    }
+    flush();
+    return messages;
+  }
+
   const EXTRACTOR_FUNCTIONS = {
     copilotModern: extractCopilotModern,
     copilotCib: extractCopilotCib,
@@ -1038,6 +1080,11 @@
           messages = [];
         }
         if (messages.length > 0) break;
+      }
+      // Dernier repli structuré : découpage sur les marqueurs « You said: /
+      // Copilot said: » présents dans le rendu d'accessibilité de la page.
+      if (!messages || messages.length === 0) {
+        try { messages = extractFromMarkers(); } catch (_) { messages = []; }
       }
     }
 
