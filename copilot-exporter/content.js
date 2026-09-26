@@ -739,7 +739,10 @@
       lines.push('-'.repeat(64));
       lines.push(`[${who}]`);
       lines.push('-'.repeat(64));
-      lines.push(m.text);
+      // Références d'images lisibles en texte brut : [Image N — fichier]
+      lines.push(String(m.text).replace(IMAGE_RE, (whole, alt, url) =>
+        alt && alt !== 'image' ? `[${alt}]` : `[Image : ${url}]`
+      ));
       lines.push('');
     }
     return lines.join('\n');
@@ -853,18 +856,49 @@
       if (!blob) continue;
       n++;
       const num = String(n).padStart(2, '0');
-      renames.set(url, `${baseName}-img${num}.${extFor(blob, url)}`);
+      const filename = `${baseName}-img${num}.${extFor(blob, url)}`;
+      renames.set(url, { n, filename });
     }
 
+    // Chaque image est référencée clairement dans le texte :
+    // ![Image N — nom-du-fichier.ext](nom-du-fichier.ext)
     const rewritten = messages.map((m) => ({
       role: m.role,
-      text: String(m.text).replace(IMAGE_RE, (whole, alt, url) =>
-        renames.has(url) ? `![${alt || 'image'}](${renames.get(url)})` : whole
-      )
+      text: String(m.text).replace(IMAGE_RE, (whole, alt, url) => {
+        const info = renames.get(url);
+        if (!info) return whole; // non téléchargeable : URL d'origine conservée
+        return `![Image ${info.n} — ${info.filename}](${info.filename})`;
+      })
     }));
     const images = Array.from(renames.entries())
-      .map(([url, filename]) => ({ blob: blobs.get(url), filename }));
+      .map(([url, info]) => ({ blob: blobs.get(url), filename: info.filename }));
     return { messages: rewritten, images };
+  }
+
+  // Décode n'importe quel format d'image supporté par le navigateur et le
+  // ré-encode en JPEG (prêt pour l'intégration directe dans le PDF).
+  async function toJpeg(blob, maxDim = 1600) {
+    try {
+      const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+      const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+      const w = Math.max(1, Math.round(bitmap.width * scale));
+      const h = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(w, h)
+        : Object.assign(document.createElement('canvas'), { width: w, height: h });
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff'; // l'alpha devient blanc (le JPEG n'en a pas)
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      bitmap.close();
+      const outBlob = canvas.convertToBlob
+        ? await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })
+        : await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+      if (!outBlob) return null;
+      return { bytes: new Uint8Array(await outBlob.arrayBuffer()), width: w, height: h };
+    } catch (_) {
+      return null;
+    }
   }
 
   // ==================================================================
@@ -945,10 +979,11 @@
     let mode;
     let text;
     let imageFiles = [];
+    let imageCount = 0;
     if (messages && messages.length > 0) {
       mode = 'structured';
-      // Capture des images (fichiers séparés) pour les exports texte
-      if (options.images !== false && (format === 'md' || format === 'txt')) {
+      // Capture des images : fichiers séparés (md/txt) ou embarquées (pdf)
+      if (options.images !== false) {
         try {
           const captured = await captureImages(messages, fileBaseName(platform));
           messages = captured.messages;
@@ -974,10 +1009,25 @@
           text: `**${meta.rawBlock}**\n\n${text}`
         }];
       }
+      // Conversion des images en JPEG pour embarquement dans le PDF
+      let pdfImages = [];
+      if (imageFiles.length > 0) {
+        const converted = await Promise.all(imageFiles.map((img) => toJpeg(img.blob)));
+        pdfImages = imageFiles
+          .map((img, idx) => (converted[idx]
+            ? {
+                filename: img.filename,
+                bytes: converted[idx].bytes,
+                width: converted[idx].width,
+                height: converted[idx].height
+              }
+            : null))
+          .filter(Boolean);
+      }
       let bytes = null;
       try {
         bytes = globalThis.__AIChatExportPdf
-          ? globalThis.__AIChatExportPdf.conversation(pdfMessages, meta, options.header !== false)
+          ? globalThis.__AIChatExportPdf.conversation(pdfMessages, meta, options.header !== false, pdfImages)
           : null;
       } catch (e) {
         bytes = null;
@@ -985,11 +1035,13 @@
       if (!bytes || !bytes.length) {
         return { ok: false, error: T.pdfFailed };
       }
+      imageCount = pdfImages.length;
       downloadFile(bytes, filename, 'application/pdf');
     } else if (format === 'md' || format === 'txt') {
       filename = `${fileBaseName(platform)}.${format}`;
       downloadFile(text, filename, format === 'md' ? 'text/markdown' : 'text/plain');
       // Les images capturées arrivent en fichiers séparés, juste après.
+      imageCount = imageFiles.length;
       for (const img of imageFiles) {
         await sleep(200); // laisse le navigateur enchaîner les téléchargements
         downloadFile(img.blob, img.filename, img.blob.type || 'image/png');
@@ -1003,7 +1055,7 @@
       mode,
       source,
       count: messages ? messages.length : 0,
-      images: imageFiles.length,
+      images: imageCount,
       filename,
       text,
       title: meta.title

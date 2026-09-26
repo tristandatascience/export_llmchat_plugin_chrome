@@ -185,12 +185,18 @@
         blocks.push({ type: 'list', items });
         continue;
       }
+      // Image seule sur sa ligne : rendue embarquée si disponible
+      if (/^!\[[^\]]*\]\([^)\s]+\)\s*$/.test(line.trim())) {
+        blocks.push({ type: 'image', ref: line.trim() });
+        i++;
+        continue;
+      }
       // Paragraphe : lignes consécutives jusqu'à une ligne vide ou un bloc
       const para = [line];
       i++;
       while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^\s*```/.test(lines[i]) &&
              !/^#{1,6}\s+/.test(lines[i]) && !/^\s*>\s?/.test(lines[i]) &&
-             !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) {
+             !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) && !/^!\[[^\]]*\]\([^)\s]+\)\s*$/.test(lines[i])) {
         para.push(lines[i]);
         i++;
       }
@@ -207,10 +213,11 @@
   const esc = (s) => s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 
   class Pdf {
-    constructor() {
+    constructor(images) {
       this.pages = [];
       this.ops = null;
       this.y = 0;
+      this.images = images || new Map(); // filename -> {bytes, width, height, ref}
       this.newPage();
     }
     newPage() {
@@ -229,6 +236,10 @@
       this.ops.push(
         `${n3(color)} rg BT /${font} ${n2(size)} Tf 1 0 0 1 ${n2(x)} ${n2(y)} Tm (${esc(str)}) Tj ET`
       );
+    }
+    image(x, y, w, h, ref) {
+      // Dessine l'image XObject dans un rectangle (w × h) au point (x, y).
+      this.ops.push(`q ${n2(w)} 0 0 ${n2(h)} ${n2(x)} ${n2(y)} cm ${ref} Do Q`);
     }
     rect(x, y, w, h, color) {
       this.ops.push(`${n3(color)} rg ${n2(x)} ${n2(y)} ${n2(w)} ${n2(h)} re f`);
@@ -345,6 +356,33 @@
         pdf.y -= pad;
         break;
       }
+      case 'image': {
+        const m = block.ref.match(/^!\[([^\]]*)\]\(([^)\s]+)\)$/);
+        const alt = m ? m[1] : '';
+        const file = m ? m[2] : '';
+        const img = pdf.images.get(file);
+        if (img) {
+          const maxW = CONTENT_W;
+          const maxH = 380;
+          const scale = Math.min(maxW / img.width, maxH / img.height);
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          pdf.ensure(h + 30);
+          const x = MARGIN.left + (CONTENT_W - w) / 2;
+          pdf.y -= h;
+          pdf.image(x, pdf.y, w, h, img.ref);
+          pdf.y -= 13;
+          pdf.text(MARGIN.left, pdf.y, sanitizeLine(alt || file), { size: 8, color: [0.45, 0.5, 0.55] });
+          pdf.y -= 6;
+        } else {
+          // Image non embarquable : référence claire en toutes lettres
+          pdf.ensure(16);
+          pdf.y -= 14;
+          pdf.text(MARGIN.left, pdf.y, sanitizeLine(`[Image : ${file}]`),
+            { size: 9, color: [0.35, 0.39, 0.44] });
+        }
+        break;
+      }
       case 'hr': {
         pdf.ensure(14);
         pdf.y -= 10;
@@ -357,7 +395,7 @@
   // ------------------------------------------------------------------
   // Assemblage du fichier PDF
   // ------------------------------------------------------------------
-  function assemble(pagesOps) {
+  function assemble(pagesOps, imageList) {
     const FONTS = [
       ['F1', 'Helvetica'],
       ['F2', 'Helvetica-Bold'],
@@ -369,6 +407,9 @@
     const pagesId = nextId++;
     const fontIds = {};
     for (const [name] of FONTS) fontIds[name] = nextId++;
+
+    // Images JPEG embarquées (XObject /DCTDecode)
+    const imageIds = imageList.map(() => nextId++);
 
     const pageIds = [];
     const contentIds = [];
@@ -383,6 +424,11 @@
       offsets[id] = out.length;
       out += `${id} 0 obj\n${body}\nendobj\n`;
     };
+    const pushRawObj = (id, prefix, bytes) => {
+      // Objet avec flux binaire (bytes = caractères latin-1, 1 octet chacun)
+      offsets[id] = out.length;
+      out += `${id} 0 obj\n${prefix}${toLatin1(bytes)}\nendstream\nendobj\n`;
+    };
 
     pushObj(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
     const kids = pageIds.map((id) => `${id} 0 R`).join(' ');
@@ -391,11 +437,21 @@
       pushObj(fontIds[FONTS[i][0]],
         `<< /Type /Font /Subtype /Type1 /BaseFont /${FONTS[i][1]} /Encoding /WinAnsiEncoding >>`);
     }
+    imageList.forEach((img, idx) => {
+      pushRawObj(imageIds[idx],
+        `<< /Type /XObject /Subtype /Image /Width ${img.width} /Height ${img.height} ` +
+        `/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${img.bytes.length} >>\nstream\n`,
+        img.bytes);
+    });
+
     const fontRes = FONTS.map(([name]) => `/${name} ${fontIds[name]} 0 R`).join(' ');
+    const xobjRes = imageIds.length > 0
+      ? ' /XObject << ' + imageIds.map((id, idx) => `/Im${idx + 1} ${id} 0 R`).join(' ') + ' >>'
+      : '';
     for (let i = 0; i < pagesOps.length; i++) {
       pushObj(pageIds[i],
         `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${n2(PAGE.w)} ${n2(PAGE.h)}] ` +
-        `/Resources << /Font << ${fontRes} >> >> /Contents ${contentIds[i]} 0 R >>`);
+        `/Resources << /Font << ${fontRes} >>${xobjRes} >> /Contents ${contentIds[i]} 0 R >>`);
       const stream = pagesOps[i].join('\n');
       pushObj(contentIds[i], `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
     }
@@ -414,11 +470,37 @@
     return bytes;
   }
 
+  function toLatin1(bytes) {
+    let s = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return s;
+  }
+
   // ------------------------------------------------------------------
   // API : rend une conversation complète en PDF (Uint8Array)
   // ------------------------------------------------------------------
-  function conversation(messages, meta, includeHeader) {
-    const pdf = new Pdf();
+  function conversation(messages, meta, includeHeader, images) {
+    // Registre des images embarquées : filename -> {bytes, width, height, ref}
+    const imageMap = new Map();
+    const imageList = [];
+    if (Array.isArray(images)) {
+      images.forEach((img, idx) => {
+        if (!img || !img.bytes || !img.bytes.length || !img.width || !img.height) return;
+        const entry = {
+          bytes: img.bytes,
+          width: img.width,
+          height: img.height,
+          ref: `/Im${imageList.length + 1}`
+        };
+        imageMap.set(img.filename, entry);
+        imageList.push(entry);
+      });
+    }
+
+    const pdf = new Pdf(imageMap);
 
     if (includeHeader) {
       const title = sanitizeLine(meta.title || `Conversation ${meta.platform}`);
@@ -449,7 +531,7 @@
       );
     });
 
-    return assemble(pdf.pages);
+    return assemble(pdf.pages, imageList);
   }
 
   globalThis.__AIChatExportPdf = { conversation };
