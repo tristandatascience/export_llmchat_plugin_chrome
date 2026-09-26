@@ -735,16 +735,24 @@
   // ==================================================================
   // Repérage de la zone de conversation (mode brut) + chargement complet
   // ==================================================================
-  function findScroller() {
+  // Repère le conteneur défilant de la conversation : on privilégie celui
+  // qui contient les ancres de messages (conteneurs de la plateforme ou
+  // marqueurs « You said: »), sinon le plus grand conteneur défilant.
+  function findScroller(platformKey) {
+    let anchors = [];
+    try { anchors = anchorCandidates(document.body, platformKey); } catch (_) { /* sans ancre */ }
     let best = null;
-    let bestArea = 0;
-    const all = document.querySelectorAll('body *');
-    for (const el of all) {
-      const st = getComputedStyle(el);
-      const oy = st.overflowY;
-      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 40) {
-        const area = el.clientHeight * el.clientWidth;
-        if (area > bestArea) { bestArea = area; best = el; }
+    let bestScore = 0;
+    for (const el of document.querySelectorAll('body *')) {
+      let st;
+      try { st = getComputedStyle(el); } catch (_) { continue; }
+      if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 40) {
+        let contains = false;
+        for (const a of anchors) {
+          if (el.contains(a.el)) { contains = true; break; }
+        }
+        const score = el.clientHeight * el.clientWidth * (contains ? 10 : 1);
+        if (score > bestScore) { bestScore = score; best = el; }
       }
     }
     if (!best && document.scrollingElement && document.scrollingElement.scrollHeight > window.innerHeight + 40) {
@@ -765,25 +773,70 @@
     );
   }
 
-  // Défilement pour forcer le chargement de l'historique complet.
-  async function ensureFullyLoaded() {
-    const scroller = findScroller();
+  // Défilement complet pour forcer le chargement de TOUT l'historique :
+  // 1. remontée progressive (déclenche le chargement paresseux),
+  // 2. attente en haut que la hauteur se stabilise (chargement par lots),
+  // 3. redescente intégrale pour forcer le rendu de chaque section.
+  async function ensureFullyLoaded(platformKey) {
+    // Boutons « afficher plus / voir la suite » éventuels
+    try {
+      for (const btn of document.querySelectorAll('button, [role="button"]')) {
+        const label = `${btn.getAttribute('aria-label') || ''} ${btn.textContent || ''}`.trim().toLowerCase();
+        if (/^(voir plus|voir la suite|afficher plus|afficher l'historique|show more|load more|charger plus)/.test(label)) {
+          btn.click();
+          await sleep(400);
+        }
+      }
+    } catch (_) { /* non bloquant */ }
+
+    const scroller = findScroller(platformKey);
     const target = scroller && scroller !== document.scrollingElement ? scroller : null;
+    // Chaque déplacement émet aussi un événement scroll synthétique : les
+    // chargements paresseux écoutant le défilement se déclenchent même si
+    // l'affectation de scrollTop n'a pas émis d'événement natif.
     const getTop = () => (target ? target.scrollTop : window.scrollY);
-    const setTop = (v) => { if (target) target.scrollTop = v; else window.scrollTo(0, v); };
+    const setTop = (v) => {
+      if (target) {
+        target.scrollTop = v;
+        target.dispatchEvent(new Event('scroll'));
+      } else {
+        window.scrollTo(0, v);
+        window.dispatchEvent(new Event('scroll'));
+      }
+    };
     const getHeight = () => (target ? target.scrollHeight : document.body.scrollHeight);
+    const step = Math.max(200, (target ? target.clientHeight : window.innerHeight) * 0.8);
 
     const before = getTop();
+
+    // Phase 1 : remontée progressive jusqu'en haut
+    for (let i = 0; i < 150 && getTop() > 0; i++) {
+      setTop(Math.max(0, getTop() - step));
+      await sleep(260);
+    }
+    // Phase 2 : en haut, attendre la fin des chargements par lots
+    // (petit aller-retour pour déclencher les écouteurs de défilement)
     let last = -1;
     let stable = 0;
-    for (let i = 0; i < 40 && stable < 4; i++) {
+    for (let i = 0; i < 100 && stable < 6; i++) {
+      setTop(0);
+      await sleep(250);
+      setTop(Math.min(80, Math.max(0, getHeight() - 1)));
+      await sleep(60);
       setTop(0);
       await sleep(250);
       const h = getHeight();
-      if (h === last) stable++; else { stable = 0; last = h; }
+      if (h === last) stable++;
+      else { stable = 0; last = h; }
+    }
+    // Phase 3 : redescente pour forcer le rendu de chaque section
+    const total = getHeight();
+    for (let pos = step; pos < total; pos += step) {
+      setTop(pos);
+      await sleep(90);
     }
     setTop(before);
-    await sleep(600); // laisse le rendu paresseux (islands, virtualisation) se stabiliser
+    await sleep(600); // laisse le rendu paresseux se stabiliser
   }
 
   // ==================================================================
@@ -1193,7 +1246,7 @@
     if (!messages || messages.length === 0) {
       source = 'dom';
       if (options.scroll) {
-        try { await ensureFullyLoaded(); } catch (_) { /* non bloquant */ }
+        try { await ensureFullyLoaded(key); } catch (_) { /* non bloquant */ }
       }
       for (const name of platform.extractors) {
         const fn = EXTRACTOR_FUNCTIONS[name];
