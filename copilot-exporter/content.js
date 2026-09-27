@@ -1873,6 +1873,43 @@
     return t;
   }
 
+  // Échos du balayage DOM : variantes du même message (avec/sans lignes
+  // d'attribution) et fragments (tables des matières, en-têtes seuls).
+  // Règle : si ≥90 % des lignes d'un message sont déjà couvertes par un
+  // message conservé de même rôle, il est absorbé ; si un message couvre
+  // ≥90 % d'un message déjà conservé et est plus long, il le remplace à sa
+  // place (l'ordre de conversation est préservé).
+  function dedupeDomEchoes(messages) {
+    const items = [];
+    for (const m of messages || []) {
+      const lines = new Set(
+        normText(m.text).split('\n').map((l) => l.trim()).filter((l) => l.length > 0));
+      if (lines.size === 0) continue;
+      const flat = Array.from(lines).join(' ').replace(/\s+/g, ' ').trim();
+      if (flat.length < 8 || /^sources?\b/i.test(flat)) continue; // fragments vides
+      items.push({ role: m.role, text: m.text, lines, flatLen: flat.length });
+    }
+    const out = [];
+    for (const it of items) {
+      let skip = false;
+      let upgrade = -1;
+      for (let j = 0; j < out.length; j++) {
+        const k = out[j];
+        if (k.role !== it.role) continue;
+        let inter = 0;
+        for (const l of it.lines) if (k.lines.has(l)) inter++;
+        if (inter / it.lines.size >= 0.9 && k.flatLen >= it.flatLen * 0.95) { skip = true; break; }
+        let interOld = 0;
+        for (const l of k.lines) if (it.lines.has(l)) interOld++;
+        if (interOld / k.lines.size >= 0.9 && it.flatLen > k.flatLen) { upgrade = j; break; }
+      }
+      if (skip) continue;
+      if (upgrade >= 0) out[upgrade] = it;
+      else out.push(it);
+    }
+    return out.map((it) => ({ role: it.role, text: it.text }));
+  }
+
   // ==================================================================
   // Pipeline d'export
   // ==================================================================
@@ -2002,6 +2039,8 @@
       messages = messages.map((m) =>
         m.role === 'user' ? { role: 'user', text: collapseDuplicate(m.text) } : m
       );
+      // Échos du balayage : variantes et fragments absorbés
+      messages = dedupeDomEchoes(messages);
     }
 
     let mode;
