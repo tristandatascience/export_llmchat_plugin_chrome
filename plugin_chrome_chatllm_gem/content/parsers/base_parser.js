@@ -108,8 +108,11 @@ class BaseParser {
         if (alt && alt.length > 5) {
           preview += '_alt:' + alt.slice(0, 50);
         } else {
-          // Sinon, on utilise un bout de l'URL, mais on enlève les paramètres changeants
+          // Sinon, on utilise un bout de l'URL, mais on enlève les paramètres changeants.
+          // Les URLs blob: sont exclues : uniques par rendu, elles feraient
+          // dériver l'ID du même message à chaque re-rendu du DOM.
           let src = img.currentSrc || img.getAttribute('src') || img.src || '';
+          if (src.startsWith('blob:')) return;
           src = src.split('?')[0]; // Enlever les paramètres d'URL qui peuvent changer
           if (src.length > 30) {
             preview += '_src:' + src.slice(-30);

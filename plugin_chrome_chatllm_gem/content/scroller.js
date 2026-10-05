@@ -142,26 +142,44 @@ class ChatScroller {
 
     const messageMap = new Map(); // id -> message
     const messageOrder = [];     // liste ordonnée des identifiants
+    // Fusion sur le contenu : l'empreinte d'ID d'un même message peut dériver
+    // entre deux passes de balayage (URL blob: régénérée, pastille de galerie
+    // qui apparaît au dépliage, texte qui s'allonge...). Sans cette fusion,
+    // chaque variante devenait un doublon complet dans l'export.
+    const contentIndex = new Map(); // role|texte|1re image -> id
+    const normText = (t) => (t || '').replace(/\s+/g, ' ').trim();
+    const imgHint = (msg) => {
+      for (const im of (msg.images || [])) {
+        // blob: change à chaque rendu : seul un src stable discrimine
+        if (im.src && !im.src.startsWith('blob:')) {
+          return im.src.split('?')[0].slice(-40);
+        }
+      }
+      return '';
+    };
 
     const harvestVisible = () => {
       const visible = this.parser.extractVisibleMessages(container);
       for (const msg of visible) {
-        if (!messageMap.has(msg.id)) {
-          messageMap.set(msg.id, msg);
-          messageOrder.push(msg.id);
-        } else {
-          // Mettre à jour si des images ou contenus additionnels sont apparus
-          const existing = messageMap.get(msg.id);
+        const ckey = msg.role + '|' + normText(msg.text) + '|' + imgHint(msg);
+        const existing = messageMap.has(msg.id)
+          ? messageMap.get(msg.id)
+          : messageMap.get(contentIndex.get(ckey));
+
+        if (existing) {
           if (msg.images && msg.images.length > 0) {
             const combined = [...(existing.images || []), ...msg.images];
             existing.images = this.parser.deduplicateImages ? this.parser.deduplicateImages(combined) : combined;
           }
-          if ((msg.text && msg.text.length > (existing.text || '').length) || 
-              (msg.markdown && msg.markdown.length > (existing.markdown || '').length) ||
-              (msg.markdown && msg.markdown !== existing.markdown)) {
+          if ((msg.text && msg.text.length > (existing.text || '').length) ||
+              (msg.markdown && msg.markdown.length > (existing.markdown || '').length)) {
             existing.text = msg.text || existing.text;
             existing.markdown = msg.markdown || existing.markdown;
           }
+        } else {
+          messageMap.set(msg.id, msg);
+          messageOrder.push(msg.id);
+          contentIndex.set(ckey, msg.id);
         }
       }
     };
