@@ -46,13 +46,20 @@ class ChatScroller {
     const scan = (root) => {
       if (!root || !root.querySelectorAll) return;
       for (const el of Array.from(root.querySelectorAll('button, [role="button"], [aria-expanded], div, span, a'))) {
-        if (el.dataset && el.dataset.chatllmGallery) continue;
-        const isClickable = el.tagName.toLowerCase() === 'button'
-          || el.getAttribute('role') === 'button'
-          || el.hasAttribute('aria-expanded');
-        if (!isClickable) continue;
+        // Déjà traité : l'élément marqué lui-même, un ancêtre marqué, OU un
+        // descendant marqué (la div enveloppe de la pastille a le même
+        // texte « 2 images » ; la cliquer replierait la galerie).
+        if (el.closest && (el.closest('[data-chatllm-gallery]')
+          || (el.querySelector && el.querySelector('[data-chatllm-gallery]')))) {
+          continue;
+        }
         const text = (el.textContent || '').trim();
         const label = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+        // Ne JAMAIS cliquer un contrôle de repli (« Afficher moins » après
+        // dépliage) : on replierait les images qu'on vient d'ouvrir.
+        if (/(afficher moins|show less|voir moins|réduire|masquer|hide|collapse)/i.test(text + ' ' + label)) {
+          continue;
+        }
         const isNumericBadge = /^\+\s*\d+(\s*(images?|photos?|img|fichiers?|files?|pièces?))?$/.test(text)
           || /^\+\s*\d+/.test(label);
         const isLabelled = label.length > 2 && label.length < 70
@@ -62,6 +69,14 @@ class ChatScroller {
         const ariaCollapsedWithImages = el.getAttribute('aria-expanded') === 'false'
           && el.parentElement && el.parentElement.querySelector
           && el.parentElement.querySelector('img');
+        // Les pills de galerie (« 2 images » + chevron) sont souvent des
+        // div/span sans rôle bouton : le texte exact suffit à les cliquer.
+        const isClickable = el.tagName.toLowerCase() === 'button'
+          || el.getAttribute('role') === 'button'
+          || el.hasAttribute('aria-expanded')
+          || isTextBadge
+          || isNumericBadge;
+        if (!isClickable) continue;
         if (isNumericBadge || isLabelled || isTextBadge || ariaCollapsedWithImages) {
           out.push(el);
         }
@@ -73,7 +88,10 @@ class ChatScroller {
       }
     };
     scan(container);
-    return out;
+    // Ne garder que l'élément le plus profond : la div qui enveloppe la
+    // pastille a le même textContent (« 2 images ») et le cliquer en plus
+    // de la pastille replierait la galerie aussitôt dépliée.
+    return out.filter(el => !out.some(other => other !== el && el.contains(other)));
   }
 
   /**
