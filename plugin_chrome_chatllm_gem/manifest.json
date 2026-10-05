@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatLLM Exporter (Copilot, Gemini, Claude)",
-  "version": "1.5.7",
+  "version": "1.5.8",
   "description": "Exporte des conversations entières (textes et images) depuis Claude, Gemini et Copilot en TXT, Markdown ou PDF.",
   "permissions": [
     "activeTab",

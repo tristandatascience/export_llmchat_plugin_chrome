@@ -33,6 +33,14 @@ class TxtFormatter {
         });
         lines.push('');
       }
+
+      if (msg.artifacts && msg.artifacts.length > 0) {
+        lines.push(`[Fichiers PDF générés (${msg.artifacts.length}) :]`);
+        msg.artifacts.forEach(a => {
+          lines.push(`  * [PDF] ${a.title || 'planche'} (visible dans les exports Markdown/PDF)`);
+        });
+        lines.push('');
+      }
       lines.push('');
     });
 

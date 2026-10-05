@@ -74,21 +74,44 @@ class ImageProcessor {
         done++;
         if (!dataUrl) continue; // blob expiré : on laisse le lien tel quel
 
-        if (msg.markdown) msg.markdown = msg.markdown.split(url).join(dataUrl);
-        if (msg.text) msg.text = msg.text.split(url).join(dataUrl);
+        // Sniffer les vrais PDF : Copilot les sert en application/octet-stream
+        // (« %PDF-1.4 » -> base64 « JVBERi0... ») ; sans ça le lien force un
+        // téléchargement au lieu de s'afficher.
+        const payload = dataUrl.slice(dataUrl.indexOf(',') + 1, dataUrl.indexOf(',') + 10);
+        const isPdf = /^data:application\/pdf/.test(dataUrl)
+          || (dataUrl.startsWith('data:application/octet-stream') && payload.startsWith('JVBERi0'));
+        const finalUrl = isPdf
+          ? 'data:application/pdf' + dataUrl.slice(dataUrl.indexOf(';'))
+          : dataUrl;
 
-        if (/^data:image\//.test(dataUrl)) {
-          const mime = (dataUrl.match(/^data:(image\/[a-z0-9+.-]+)/) || [])[1] || 'image/png';
+        // Titre du lien markdown (« Planche 2, Carnets de Brume »...)
+        let title = 'Fichier généré';
+        const escUrl = url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const tmatch = (msg.markdown || '').match(new RegExp('\\[([^\\]]{1,80})\\]\\(' + escUrl + '\\)'));
+        if (tmatch) title = tmatch[1];
+
+        // Le markdown garde les données complètes (fichier autoportant) ;
+        // le texte brut reçoit un marqueur court pour ne pas gonfler le TXT.
+        if (msg.markdown) msg.markdown = msg.markdown.split(url).join(finalUrl);
+        if (msg.text) msg.text = msg.text.split(url).join(isPdf ? `[fichier PDF : ${title}]` : '[image]');
+
+        if (isPdf) {
+          msg.artifacts = msg.artifacts || [];
+          if (!msg.artifacts.some(a => a.title === title)) {
+            msg.artifacts.push({ kind: 'pdf', dataUrl: finalUrl, title });
+          }
+        } else if (/^data:image\//.test(finalUrl)) {
+          const mime = (finalUrl.match(/^data:(image\/[a-z0-9+.-]+)/) || [])[1] || 'image/png';
           const existing = (msg.images || []).find(im => im.src === url);
           if (existing) {
-            existing.dataUrl = dataUrl;
+            existing.dataUrl = finalUrl;
             existing.mimeType = mime;
             existing.extension = this.getExtensionFromMime(mime);
           } else {
             msg.images = msg.images || [];
             msg.images.push({
               src: url,
-              alt: 'Fichier généré (planche)',
+              alt: title,
               dataUrl,
               mimeType: mime,
               extension: this.getExtensionFromMime(mime),

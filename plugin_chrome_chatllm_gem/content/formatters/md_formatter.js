@@ -144,6 +144,20 @@ class MdFormatter {
         }
       });
 
+      // Planches / fichiers PDF générés par l'IA : fichiers planches/ du zip
+      if (msg.artifacts && msg.artifacts.length > 0) {
+        msg.artifacts.forEach(a => {
+          if (a.kind !== 'pdf' || !a.dataUrl) return;
+          a.zipFilename = `planches/planche_${String(globalImgCounter).padStart(3, '0')}.pdf`;
+          globalImgCounter++;
+          if (bodyText.includes(a.dataUrl)) {
+            bodyText = bodyText.split(a.dataUrl).join(a.zipFilename);
+          } else {
+            bodyText += `\n\n📄 [${a.title}](${a.zipFilename})`;
+          }
+        });
+      }
+
       if (bodyText) {
         lines.push(bodyText);
       }
@@ -192,6 +206,15 @@ class MdFormatter {
             addedZipFiles.add(img.zipFilename);
             const rawBytes = MdFormatter.dataUrlToUint8Array(img.dataUrl);
             await zip.addFile(img.zipFilename, rawBytes);
+          }
+        }
+      }
+      if (msg.artifacts) {
+        for (const a of msg.artifacts) {
+          if (a.kind === 'pdf' && a.zipFilename && a.dataUrl && !addedZipFiles.has(a.zipFilename)) {
+            addedZipFiles.add(a.zipFilename);
+            const rawBytes = MdFormatter.dataUrlToUint8Array(a.dataUrl);
+            await zip.addFile(a.zipFilename, rawBytes);
           }
         }
       }

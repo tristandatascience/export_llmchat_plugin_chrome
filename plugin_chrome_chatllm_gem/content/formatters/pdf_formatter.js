@@ -76,6 +76,19 @@ class PdfFormatter {
         `;
       }
 
+      // Planches / fichiers PDF générés par l'IA : aperçu intégré cliquable
+      let artifactsHtml = '';
+      if (msg.artifacts && msg.artifacts.length > 0) {
+        artifactsHtml = msg.artifacts.filter(a => a.kind === 'pdf' && a.dataUrl).map(a => `
+          <div class="pdf-artifact">
+            <object type="application/pdf" data="${a.dataUrl}" width="100%" height="820">
+              <embed type="application/pdf" src="${a.dataUrl}" width="100%" height="820" />
+            </object>
+            <span class="image-caption">📄 ${PdfFormatter.escapeHtml(a.title)} &mdash; <a href="${a.dataUrl}" download="planche.pdf">ouvrir / télécharger le PDF</a></span>
+          </div>
+        `).join('');
+      }
+
       return `
         <div class="chat-message ${roleClass}">
           <div class="message-header">
@@ -86,6 +99,7 @@ class PdfFormatter {
             ${bodyHtml}
           </div>
           ${imagesHtml}
+          ${artifactsHtml}
         </div>
       `;
     }).join('\n');
@@ -283,6 +297,18 @@ class PdfFormatter {
       color: var(--text-muted);
       background: #f8fafc;
     }
+    .pdf-artifact {
+      margin-top: 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .pdf-artifact object,
+    .pdf-artifact embed {
+      display: block;
+      margin: 0 auto;
+    }
     @media print {
       body {
         background: #fff;
@@ -394,6 +420,17 @@ class PdfFormatter {
     // Si une image data:image a été scindée avec des retours à la ligne
     html = html.replace(/!\[([\s\S]*?)\][\s\r\n]+\(([^)]+)\)/g, (match, alt, src) => {
       return `<div class="image-card"><img src="${src.trim()}" alt="${PdfFormatter.escapeHtml(alt.trim())}" /><span class="image-caption">${PdfFormatter.escapeHtml(alt.trim())}</span></div>`;
+    });
+
+    // Liens classiques [texte](url) : les PDF embarqués (planches générées)
+    // sont affichés en aperçu intégré plus bas — ici on n'en garde que le
+    // titre, pour ne pas afficher deux fois la même planche.
+    html = html.replace(/\[([^\]]+)\]\s*\(([^)]+)\)/g, (match, text, src) => {
+      const u = src.trim();
+      if (u.startsWith('data:application/pdf')) {
+        return `<strong>${PdfFormatter.escapeHtml(text.trim())}</strong> <em>(aperçu ci-dessous)</em>`;
+      }
+      return `<a href="${u}">${PdfFormatter.escapeHtml(text.trim())}</a>`;
     });
 
     // Gras et italique
