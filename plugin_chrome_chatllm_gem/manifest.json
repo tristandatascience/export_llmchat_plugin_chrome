@@ -1,0 +1,89 @@
+{
+  "manifest_version": 3,
+  "name": "ChatLLM Exporter (Copilot, Gemini, Claude)",
+  "version": "1.5.4",
+  "description": "Exporte des conversations entières (textes et images) depuis Claude, Gemini et Copilot en TXT, Markdown ou PDF.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "storage", "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "*://claude.ai/*",
+    "*://*.claude.ai/*",
+    "*://gemini.google.com/*",
+    "*://*.gemini.google.com/*",
+    "*://bard.google.com/*",
+    "*://*.bard.google.com/*",
+    "*://copilot.com/*",
+    "*://*.copilot.com/*",
+    "*://copilot.microsoft.com/*",
+    "*://*.copilot.microsoft.com/*",
+    "*://copilot.cloud.microsoft/*",
+    "*://*.copilot.cloud.microsoft/*",
+    "*://*.bing.com/*",
+    "*://bing.com/*",
+    "*://*.googleusercontent.com/*",
+    "*://*.anthropic.com/*"
+  ],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: https: http: blob:;" }, "background": {
+    "service_worker": "background/service_worker.js"
+  },
+  "action": {
+    "default_title": "ChatLLM Exporter",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://claude.ai/*",
+        "*://*.claude.ai/*",
+        "*://gemini.google.com/*",
+        "*://*.gemini.google.com/*",
+        "*://bard.google.com/*",
+        "*://*.bard.google.com/*",
+        "*://copilot.com/*",
+        "*://*.copilot.com/*",
+        "*://copilot.microsoft.com/*",
+        "*://*.copilot.microsoft.com/*",
+        "*://copilot.cloud.microsoft/*",
+        "*://*.copilot.cloud.microsoft/*",
+        "*://*.bing.com/*",
+        "*://bing.com/*"
+      ],
+      "css": ["content/overlay.css"],
+      "js": [
+        "lib/zip_util.js",
+        "content/parsers/base_parser.js",
+        "content/parsers/claude_parser.js",
+        "content/parsers/gemini_parser.js",
+        "content/parsers/copilot_parser.js",
+        "content/image_processor.js",
+        "content/scroller.js",
+        "content/formatters/txt_formatter.js",
+        "content/formatters/md_formatter.js",
+        "content/formatters/pdf_formatter.js",
+        "content/overlay.js",
+        "content/content_main.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "print/*"],
+      "matches": ["*://*/*"]
+    }
+  ]
+}

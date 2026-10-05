@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatLLM Exporter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="header-logo">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="#3b82f6">
+          <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+        </svg>
+        <span class="header-title">ChatLLM Exporter</span>
+      </div>
+      <span class="version-tag">v1.3.1</span>
+    </div>
+
+    <div class="popup-content">
+      <div id="status-card" class="status-card">
+        <div id="status-icon" class="status-icon">⚪</div>
+        <div class="status-info">
+          <div id="status-title" class="status-title">Vérification de la page...</div>
+          <div id="status-desc" class="status-desc">Analyse du site en cours</div>
+        </div>
+      </div>
+
+      <div id="active-actions" class="actions-section" style="display: none;">
+        <button id="btn-toggle-overlay" class="btn btn-primary">
+          Ouvrir le panneau d'exportation
+        </button>
+        <p class="hint-text">Vous pouvez aussi cliquer sur le bouton flottant bleu en bas à droite de votre écran.</p>
+      </div>
+
+      <div id="inactive-actions" class="actions-section" style="display: none;">
+        <p class="info-text">Rendez-vous sur l'un des chats supportés pour exporter vos conversations et images :</p>
+        <div class="links-list">
+          <a href="https://claude.ai" target="_blank" class="chat-link">
+            <span>Anthropic Claude</span>
+            <span>&rarr;</span>
+          </a>
+          <a href="https://gemini.google.com" target="_blank" class="chat-link">
+            <span>Google Gemini</span>
+            <span>&rarr;</span>
+          </a>
+          <a href="https://copilot.microsoft.com" target="_blank" class="chat-link">
+            <span>Microsoft Copilot</span>
+            <span>&rarr;</span>
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <footer class="popup-footer">
+      <span>Formats : TXT, Markdown (Base64 & ZIP), PDF</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
