@@ -200,6 +200,15 @@ class ChatLLMOverlay {
 
       // 2. Traitement des images si activé
       if (includeImages) {
+        // 2a. Artefacts blob: (planches générées rendues en liens de
+        // téléchargement) : à récupérer tant que la page vit.
+        try {
+          await this.imageProcessor.resolveBlobArtifacts(messages, (cur, tot, m) => {
+            statusText.textContent = m;
+          });
+        } catch (e) {
+          console.warn('Résolution des artefacts blob: impossible', e);
+        }
         statusText.textContent = 'Traitement et téléchargement des images...';
         progressFill.style.width = '85%';
         await this.imageProcessor.processAllImages(messages, (current, total, msg) => {

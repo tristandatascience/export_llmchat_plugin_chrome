@@ -31,7 +31,7 @@ class BaseParser {
     let title = document.title || '';
     title = title.replace(/\s*-\s*(Claude|Google Gemini|Gemini|Microsoft Copilot|Copilot|Bing)\s*$/i, '').trim();
 
-    if (!title || /^(copilot|gemini|claude|bing|nouveau chat|new chat)$/i.test(title)) {
+    if (!title || /^(microsoft copilot|copilot|gemini|claude|bing|nouveau chat|new chat)$/i.test(title)) {
       return `Conversation_${this.platformName}_${new Date().toISOString().slice(0, 10)}`;
     }
 

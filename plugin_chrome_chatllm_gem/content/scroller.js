@@ -161,7 +161,15 @@ class ChatScroller {
     const harvestVisible = () => {
       const visible = this.parser.extractVisibleMessages(container);
       for (const msg of visible) {
-        const ckey = msg.role + '|' + normText(msg.text) + '|' + imgHint(msg);
+        const t = normText(msg.text);
+        const hint = imgHint(msg);
+        // Texte long : rôle+texte suffisent (l'indice d'image ferait rater la
+        // fusion quand l'image IA arrive APRES le texte entre deux passes).
+        // Texte court (photos seules, "Oct 5"...) : l'indice d'image garde
+        // les envois distincts séparés.
+        const ckey = t.length >= 60
+          ? (msg.role + '|' + t)
+          : (msg.role + '|' + t + '|' + hint);
         const existing = messageMap.has(msg.id)
           ? messageMap.get(msg.id)
           : messageMap.get(contentIndex.get(ckey));

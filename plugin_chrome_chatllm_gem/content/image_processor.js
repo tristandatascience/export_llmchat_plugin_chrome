@@ -21,6 +21,87 @@ class ImageProcessor {
   }
 
   /**
+   * Résout les artefacts blob: (planches/fichiers générés par l'IA, rendus
+   * sous forme de lien de téléchargement plutôt que de balise <img>).
+   * Une URL blob: ne vit que tant que la page vit : on la récupère MAINTENANT
+   * et on remplace le lien par les données embarquées (data URL), sinon
+   * l'export contient un lien mort.
+   */
+  async resolveBlobArtifacts(messages, onProgress) {
+    // blob:<origine>/<uuid> — l'origine varie (https://…, null en local)
+    const blobUrlRe = /blob:[^\s)"'<>\]]+/g;
+    const resolved = new Map(); // blobUrl -> dataUrl | null
+
+    const resolve = async (url) => {
+      if (resolved.has(url)) return resolved.get(url);
+      let result = null;
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          if (blob.size > 0) result = await this.blobToDataUrl(blob);
+        }
+      } catch (_) { result = null; }
+      resolved.set(url, result);
+      return result;
+    };
+
+    // 1. Collecter les URLs blob: présentes dans les messages
+    const jobs = [];
+    let found = 0;
+    for (const msg of messages) {
+      const urls = new Set();
+      for (const field of ['markdown', 'text']) {
+        const content = msg[field] || '';
+        let m;
+        blobUrlRe.lastIndex = 0;
+        while ((m = blobUrlRe.exec(content))) urls.add(m[0]);
+      }
+      (msg.images || []).forEach(im => { if (im.src && im.src.startsWith('blob:')) urls.add(im.src); });
+      if (urls.size > 0) {
+        jobs.push({ msg, urls: [...urls] });
+        found += urls.size;
+      }
+    }
+    if (found === 0) return;
+
+    // 2. Récupérer chaque artefact et l'embarquer
+    let done = 0;
+    for (const { msg, urls } of jobs) {
+      for (const url of urls) {
+        if (onProgress) onProgress(done, found, `Récupération du fichier généré ${done + 1}/${found}...`);
+        const dataUrl = await resolve(url);
+        done++;
+        if (!dataUrl) continue; // blob expiré : on laisse le lien tel quel
+
+        if (msg.markdown) msg.markdown = msg.markdown.split(url).join(dataUrl);
+        if (msg.text) msg.text = msg.text.split(url).join(dataUrl);
+
+        if (/^data:image\//.test(dataUrl)) {
+          const mime = (dataUrl.match(/^data:(image\/[a-z0-9+.-]+)/) || [])[1] || 'image/png';
+          const existing = (msg.images || []).find(im => im.src === url);
+          if (existing) {
+            existing.dataUrl = dataUrl;
+            existing.mimeType = mime;
+            existing.extension = this.getExtensionFromMime(mime);
+          } else {
+            msg.images = msg.images || [];
+            msg.images.push({
+              src: url,
+              alt: 'Fichier généré (planche)',
+              dataUrl,
+              mimeType: mime,
+              extension: this.getExtensionFromMime(mime),
+              filename: `planche_${String(msg.images.length + 1).padStart(2, '0')}.${this.getExtensionFromMime(mime)}`
+            });
+          }
+        }
+      }
+    }
+    if (onProgress) onProgress(found, found, 'Fichiers générés récupérés');
+  }
+
+  /**
    * Traite toutes les images d'une liste de messages avec rapport de progression
    * @param {Array} messages - Liste des messages
    * @param {Function} onProgress - Callback (current, total, statusText)
@@ -49,6 +130,11 @@ class ImageProcessor {
 
     let processed = 0;
     for (const img of allImages) {
+      if (img.dataUrl) {
+        // Déjà résolue (ex: artefact blob: récupéré par resolveBlobArtifacts)
+        processed++;
+        continue;
+      }
       if (onProgress) {
         onProgress(processed, total, `Conversion de l'image ${processed + 1} / ${total}...`);
       }
