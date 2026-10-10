@@ -1,248 +1,190 @@
-# AI Chat Export — Exporteur de conversations IA / LLM Chat Conversation Exporter
+# ChatLLM Exporter — Copilot · Gemini · Claude
 
 <div align="center">
 
-**Copilot · ChatGPT · Claude · Gemini → Markdown · PDF · TXT — texte + images**
+**Copilot · Gemini · Claude → Markdown · PDF · ZIP · TXT — texte + images + planches**
 
-Extension Chrome, 100 % locale — aucune donnée ne quitte votre navigateur.
-Chrome extension, 100% local — no data ever leaves your browser.
+Extension Chrome à interface intégrée dans la page, 100 % locale — aucune donnée
+ne quitte votre navigateur.
+In-page UI Chrome extension, 100% local — no data ever leaves your browser.
 
 ☕ Soutenez le développement / Support the development : **[ko-fi.com/tristanlozahic](https://ko-fi.com/tristanlozahic)**
 
 </div>
 
 <p align="center">
-  <img src="docs/popup-fr.png" alt="Popup de l'extension — aperçu en français / Extension popup — French preview" width="320">
+  <img src="docs/interface-panneau.png" alt="Panneau d'export ChatLLM Exporter ouvert sur une conversation Copilot / ChatLLM Exporter panel open on a Copilot conversation" width="860">
+</p>
+
+<p align="center">
+  <img src="docs/interface-bouton.png" alt="Bouton flottant sur la conversation / Floating button on the conversation" width="410">
+  <img src="docs/interface-progression.png" alt="Progression de la capture / Capture progress" width="410">
 </p>
 
 ---
 
 ## 🇫🇷 Français
 
-Exportez une **conversation entière** depuis votre assistant IA préféré vers un
-fichier **Markdown (.md)**, **PDF (.pdf)** ou **texte (.txt)**, ou copiez-la
-dans le presse-papiers. Interface disponible en **français et anglais**
-(suit la langue du navigateur, ou forçage via le menu déroulant).
+**ChatLLM Exporter** exporte une **conversation entière** depuis Microsoft
+Copilot, Google Gemini ou Anthropic Claude vers un fichier **Markdown
+autonome (.md)**, une **archive ZIP** (Markdown + images), un **document
+PDF** stylisé ou un fichier **texte (.txt)** — textes, **images envoyées et
+générées**, et même les **planches PDF générées par l'IA**.
 
-☕ Si cette extension vous est utile, vous pouvez [soutenir son développement
-sur Ko-fi](https://ko-fi.com/tristanlozahic).
+Un **bouton flottant bleu** apparaît en bas à droite des sites supportés :
+un clic ouvre le panneau d'export, directement dans la page.
 
 ### Plateformes prises en charge
 
 | Plateforme | Domaines |
 |---|---|
-| Copilot | `copilot.com`, `copilot.microsoft.com`, `m365.cloud.microsoft/chat` |
-| ChatGPT | `chatgpt.com` (et l'ancien `chat.openai.com`) |
-| Claude | `claude.ai` |
+| Copilot | `copilot.com`, `copilot.microsoft.com`, `copilot.cloud.microsoft`, `bing.com` |
 | Gemini | `gemini.google.com` |
+| Claude | `claude.ai` |
 
 ### Installation (mode développeur)
 
 1. Ouvrez `chrome://extensions`
 2. Activez le **Mode développeur** (coin haut droit)
 3. Cliquez sur **Charger l'extension non empaquetée**
-4. Sélectionnez le dossier `copilot-exporter` (celui qui contient `manifest.json`)
-5. (Recommandé) Épinglez l'extension via l'icône puzzle de la barre d'outils
+4. Sélectionnez le dossier `plugin_chrome_chatllm_gem` (celui qui contient
+   `manifest.json`)
 
 ### Utilisation
 
-1. Ouvrez la conversation à exporter dans l'onglet actif
-2. Cliquez sur l'icône de l'extension
-3. Choisissez la **plateforme** et la **langue** dans les menus déroulants
-   (tout deux en « Détection automatique » par défaut)
-4. Cliquez sur **Markdown (.md)**, **PDF (.pdf)**, **Texte (.txt)** ou
-   **Copier le Markdown**
+1. Ouvrez la conversation à exporter
+2. Cliquez sur le **bouton flottant bleu** en bas à droite
+3. Choisissez le **format** et le **mode de défilement**, laissez
+   « Extraire les images » coché
+4. Cliquez sur **Démarrer l'extraction** — le panneau affiche la progression
+   en temps réel ; le bouton **Arrêter et exporter maintenant** est disponible
+   à tout moment
 
-Le fichier arrive dans vos **Téléchargements** :
-`<plateforme>-<titre>-<AAAA-MM-JJ_HH-MM-SS>.<ext>`.
+### Formats d'export
 
-**Images** ✨ : l'extension **capture aussi les images** de la conversation
-(générées par l'IA ou envoyées par vous), **à leur place dans le fil** :
-- **Markdown / TXT** : téléchargées en fichiers séparés
-  (`<fichier>-img01.png`, …) et référencées clairement dans le texte,
-  dans le message qui les contient
-  (`![Image 1 — nom-du-fichier.png](…)` en Markdown,
-  `[Image 1 — nom-du-fichier.png]` en TXT) — placez le tout dans un même
-  dossier et l'export est autonome ;
-- **PDF** : embarquées directement dans le document au bon endroit dans la
-  conversation, avec leur nom en légende.
-Chaque image est rattachée à son message (conteneurs de la plateforme ou
-marqueurs de position), récupérée directement depuis la page affichée
-(fetch, puis lecture de l'élément lui-même pour les images `blob:` et de
-même origine) et convertie en JPEG pour le PDF. Chrome peut demander une
-confirmation « Télécharger plusieurs fichiers » (une fois par site). Si une
-image ne peut vraiment pas être récupérée (CORS), son URL d'origine est
-conservée dans le texte. Option désactivable dans le popup.
+| Format | Contenu |
+|---|---|
+| **Markdown autonome (.md)** | Fichier unique, images intégrées en Base64 — s'ouvre partout (Obsidian, VS Code, Notion…) |
+| **Markdown + Images (.zip)** | Archive : `conversation.md` + dossier `images/` + dossier `planches/` (PDF générés) |
+| **Document PDF (.pdf)** | Mise en page en bulles prête à imprimer, images intégrées, planches PDF en aperçu intégré |
+| **Texte brut (.txt)** | Texte horodaté délimité, images et planches référencées |
 
-### Options du popup
+### Fonctionnalités clés
 
-- **Défiler pour tout charger** : fait défiler la conversation et assemble
-  chaque fenêtre rendue — récupère l'historique complet même quand la liste
-  est virtualisée.
-- **Défilement lent pour les images** : ralentit ce balayage et attend le
-  chargement des images visibles à chaque pas — utile pour les longues
-  conversations dont les images s'affichent avec retard.
-- **Inclure les images** / **Inclure l'en-tête** : voir ci-dessus.
+- **Scroll & Harvest** : défilement automatique complet de haut en bas pour
+  vaincre la virtualisation du DOM (les messages hors écran sont détruits par
+  le site) — chaque message est capturé dans l'ordre chronologique exact.
+- **Galeries d'images multiples** : quand plusieurs photos sont envoyées dans
+  un même message (pile repliée « N images »), l'extension **déplie
+  automatiquement** la galerie pendant la capture pour tout récupérer.
+- **Images générées** (DALL-E / Designer, Imagen…) **et envoyées**, converties
+  en Base64 via Canvas ou le relais du service worker (contournement CORS).
+- **Planches PDF générées par l'IA** : les fichiers PDF que Copilot propose en
+  téléchargement (liens `blob:` éphémères) sont récupérés pendant l'export et
+  embarqués — aperçu intégré dans l'export PDF, fichiers réels dans le ZIP.
+- **Anti-doublons** : les messages sont fusionnés par contenu au fil du
+  balayage (identifiants stables), même quand les images arrivent après le
+  texte.
 
-### Comment ça marche
+### Confidentialité
 
-Chaîne de stratégies, de la plus fiable à la plus générique :
-
-1. **API interne Copilot** (copilot.com / copilot.microsoft.com) : historique
-   complet en JSON, sans faire défiler la page — réflexions de l'IA, images
-   et sources citées incluses.
-2. **DOM spécifique à chaque plateforme** (ChatGPT, Claude, Gemini, Copilot)
-   puis reconversion en Markdown (titres, listes, blocs de code, tableaux).
-3. **Balayage au défilement** pour les conversations longues : l'extension
-   fait défiler la page et assemble chaque fenêtre rendue par
-   recouvrement — indispensable quand la liste est virtualisée (le DOM ne
-   contient jamais toute la conversation à la fois).
-4. **Mode brut** (repli) : texte complet de la zone de conversation.
-
-Le PDF est généré par un **moteur PDF autonome** intégré (PDF 1.4, polices
-standard) : texte sélectionnable, fichiers légers, pagination, numéros de
-page. Limite : les caractères hors alphabet latin occidental y sont
-retirés/translittérés — le Markdown reste l'export le plus fidèle.
-
-### Dépannage
-
-- **« L'onglet actif n'est pas une conversation prise en charge »** : ouvrez
-  la conversation dans l'onglet actif, F5 si l'extension vient d'être
-  installée/mise à jour.
-- **Export incomplet** : activez « Défiler pour tout charger », ou remontez
-  manuellement en haut de la conversation avant d'exporter.
-- **Mode brut au lieu du structuré** : l'interface du site a changé ; adaptez
-  la section `SELECTORS` de `copilot-exporter/content.js`.
+Aucune collecte, aucun serveur, aucun traceur. Tout se passe dans votre
+navigateur. Détails : [PRIVACY.md](PRIVACY.md).
 
 ### Structure du dépôt
 
 ```
-copilot-exporter/   ← l'extension Chrome (à charger dans chrome://extensions)
-  manifest.json     ← Manifest V3
-  content.js        ← extraction (API + DOM par plateforme), conversion
-  pdf.js            ← générateur PDF autonome
-  popup.html/css/js ← interface (menus plateforme/langue, options)
-  icons/            ← icônes
-tools/              ← scripts de développement (générateur d'icônes…)
-docs/               ← captures d'écran (popup, bannière store 1280x800)
+plugin_chrome_chatllm_gem/  ← l'extension Chrome (à charger dans chrome://extensions)
+  manifest.json              ← Manifest V3
+  content/                   ← parseurs par plateforme, balayage, overlay, image processor
+  content/formatters/        ← exports TXT / Markdown (inline + zip) / PDF (print)
+  background/                ← service worker (téléchargements, relais images)
+  popup/, print/             ← interface et page d'impression PDF
+copilot-exporter/            ← première version de l'extension (historique)
+dist/                        ← zips prêts à installer / publier
+docs/                        ← captures d'écran et visuels store
+tools/                       ← scripts de développement
 ```
 
 ---
 
 ## 🇬🇧 English
 
-Export an **entire conversation** from your favourite AI assistant to a
-**Markdown (.md)**, **PDF (.pdf)** or **plain text (.txt)** file, or copy it
-to the clipboard. UI available in **French and English** (follows the browser
-language by default — English for any non-French browser — or force it from
-the dropdown).
+**ChatLLM Exporter** exports an **entire conversation** from Microsoft
+Copilot, Google Gemini or Anthropic Claude to a **self-contained Markdown
+(.md)** file, a **ZIP archive** (Markdown + images), a styled **PDF**
+document or a **plain text (.txt)** file — texts, **uploaded and generated
+images**, and even **PDF sheets generated by the AI**.
 
-☕ If you find this extension useful, you can [support its development on
-Ko-fi](https://ko-fi.com/tristanlozahic).
+A **blue floating button** appears at the bottom right of supported sites:
+one click opens the export panel, right inside the page.
 
 ### Supported platforms
 
 | Platform | Domains |
 |---|---|
-| Copilot | `copilot.com`, `copilot.microsoft.com`, `m365.cloud.microsoft/chat` |
-| ChatGPT | `chatgpt.com` (and legacy `chat.openai.com`) |
-| Claude | `claude.ai` |
+| Copilot | `copilot.com`, `copilot.microsoft.com`, `copilot.cloud.microsoft`, `bing.com` |
 | Gemini | `gemini.google.com` |
+| Claude | `claude.ai` |
 
 ### Install (developer mode)
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top right)
 3. Click **Load unpacked**
-4. Select the `copilot-exporter` folder (the one containing `manifest.json`)
-5. (Recommended) Pin the extension via the toolbar puzzle icon
+4. Select the `plugin_chrome_chatllm_gem` folder (the one containing
+   `manifest.json`)
 
 ### Usage
 
-1. Open the conversation you want to export in the active tab
-2. Click the extension icon
-3. Pick the **platform** and the **language** in the dropdowns
-   (both default to automatic detection)
-4. Click **Markdown (.md)**, **PDF (.pdf)**, **Text (.txt)** or
-   **Copy Markdown**
+1. Open the conversation you want to export
+2. Click the **blue floating button** at the bottom right
+3. Pick the **format** and the **scroll mode**, keep
+   "Extract images" checked
+4. Click **Start extraction** — the panel shows live progress; the
+   **Stop and export now** button is always available
 
-The file lands in your **Downloads** folder:
-`<platform>-<title>-<YYYY-MM-DD_HH-MM-SS>.<ext>`.
+### Export formats
 
-**Images** ✨: the extension **also captures images** found in the
-conversation (AI-generated or uploaded by you), **at their place in the
-thread**:
-- **Markdown / TXT**: downloaded as separate files (`<file>-img01.png`, …)
-  and clearly referenced by name, inside the message that contains them —
-  keep everything in one folder and the export is self-contained;
-- **PDF**: embedded directly inside the document at the right position in
-  the conversation, with the file name as caption.
-Each image is anchored to its own message (platform containers or position
-markers), grabbed straight from the rendered page (fetch, then reading the
-element itself for `blob:` and same-origin images) and converted to JPEG
-for the PDF. Chrome may ask a one-time "Download multiple files"
-confirmation per site. If an image truly cannot be fetched (CORS), its
-original URL is kept in the text. Can be disabled in the popup.
+| Format | Content |
+|---|---|
+| **Self-contained Markdown (.md)** | Single file, Base64-embedded images — opens anywhere (Obsidian, VS Code, Notion…) |
+| **Markdown + Images (.zip)** | Archive: `conversation.md` + `images/` folder + `planches/` folder (generated PDFs) |
+| **PDF document (.pdf)** | Print-ready bubble layout, embedded images, PDF sheets shown as embedded previews |
+| **Plain text (.txt)** | Delimited, timestamped text; images and sheets referenced |
 
-### Popup options
+### Key features
 
-- **Scroll to load the full history**: scrolls the conversation and
-  assembles every rendered window — recovers the full history even when the
-  list is virtualized.
-- **Slow scrolling for images**: slows this sweep down and waits for visible
-  images to finish loading at each step — useful for long conversations
-  whose images appear with a delay.
-- **Include images / Include the header**: see above.
+- **Scroll & Harvest**: full automatic top-to-bottom sweep to defeat DOM
+  virtualization (off-screen messages are destroyed by the site) — every
+  message captured in exact chronological order.
+- **Multi-image galleries**: when several photos are sent in one message
+  (collapsed "N images" stack), the extension **automatically expands** the
+  gallery during capture to get them all.
+- **Generated images** (DALL-E / Designer, Imagen…) **and uploads**, converted
+  to Base64 via Canvas or the service-worker relay (CORS workaround).
+- **AI-generated PDF sheets**: the PDF files Copilot offers as downloads
+  (ephemeral `blob:` links) are fetched during export and embedded — inline
+  preview in the PDF export, real files in the ZIP.
+- **Duplicate-proof**: messages are merged by content during the sweep
+  (stable identifiers), even when images arrive after the text.
 
-### How it works
+### Privacy
 
-Strategies, from most to least reliable:
-
-1. **Copilot internal API** (copilot.com / copilot.microsoft.com): full JSON
-   history without scrolling the page — AI thoughts, images and cited sources
-   included.
-2. **Per-platform DOM extraction** (ChatGPT, Claude, Gemini, Copilot),
-   converted back to Markdown (headings, lists, code blocks, tables).
-3. **Scroll sweep for long conversations**: the extension scrolls the page
-   and assembles every rendered window by overlap — essential when the
-   message list is virtualized (the DOM never holds the whole conversation
-   at once).
-4. **Raw mode** (fallback): full text of the conversation area.
-
-The PDF is produced by a **built-in dependency-free PDF engine** (PDF 1.4,
-standard fonts): selectable text, lightweight files, pagination, page
-numbers. Limitation: characters outside the Western Latin alphabet are
-dropped/transliterated — Markdown remains the highest-fidelity export.
-
-### Troubleshooting
-
-- **“The active tab is not a supported conversation”**: open the conversation
-  in the active tab; press F5 if the extension was just installed/updated.
-- **Incomplete export**: enable “Scroll to load the full history”, or scroll
-  to the top of the conversation manually before exporting.
-- **Raw mode instead of structured**: the site UI changed; adapt the
-  `SELECTORS` section in `copilot-exporter/content.js`.
+No collection, no server, no tracker. Everything happens in your browser.
+Details: [PRIVACY.md](PRIVACY.md).
 
 ### Repository layout
 
 ```
-copilot-exporter/   ← the Chrome extension (load it in chrome://extensions)
-  manifest.json     ← Manifest V3
-  content.js        ← extraction (API + per-platform DOM), conversion
-  pdf.js            ← standalone PDF engine
-  popup.html/css/js ← UI (platform/language dropdowns, options)
-  icons/            ← icons
-tools/              ← dev scripts (icon generator, screenshot cropper…)
-docs/               ← screenshots (popup preview, store banner 1280x800)
+plugin_chrome_chatllm_gem/  ← the Chrome extension (load in chrome://extensions)
+  manifest.json              ← Manifest V3
+  content/                   ← per-platform parsers, sweep, overlay, image processor
+  content/formatters/        ← TXT / Markdown (inline + zip) / PDF (print) exports
+  background/                ← service worker (downloads, image relay)
+  popup/, print/             ← UI and the PDF print page
+copilot-exporter/            ← first version of the extension (legacy)
+dist/                        ← ready-to-install / publish zips
+docs/                        ← screenshots and store graphics
+tools/                       ← dev scripts
 ```
-
-## Privacy / Confidentialité
-
-- 🇫🇷 Aucune permission réseau dédiée, aucun collecteur, aucun envoi. Tout se
-  passe dans l'onglet ; le fichier est créé par le navigateur. Seule exception
-  technique : sur Copilot, l'historique est relu depuis l'API de Copilot
-  elle-même avec la session de votre onglet, pour un export plus complet.
-- 🇬🇧 No dedicated network permission, no tracker, no upload. Everything
-  happens in the tab; the file is created by the browser itself. One technical
-  exception: on Copilot, the history is re-read from Copilot's own API using
-  your tab's session, for a more complete export.

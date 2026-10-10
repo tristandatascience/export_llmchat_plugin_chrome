@@ -1,4 +1,4 @@
-# ChatLLM Exporter (Copilot, Gemini, Claude) `v1.3.1`
+# ChatLLM Exporter (Copilot, Gemini, Claude) `v2.3.0`
 
 Extension Chrome (Manifest V3) permettant d'extraire et d'exporter l'intégralité d'une conversation depuis **Microsoft Copilot**, **Google Gemini** et **Anthropic Claude**, y compris les conversations très longues et l'ensemble des images (envoyées par vous ou générées par l'IA).
 
