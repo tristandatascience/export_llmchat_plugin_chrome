@@ -1,7 +1,7 @@
 # Privacy Policy / Politique de confidentialité
 
-**AI Chat Export** — Chrome extension
-Last updated / Dernière mise à jour : 2026-09-25
+**ChatLLM Exporter (Copilot, Gemini, Claude)** — Chrome extension (Manifest V3)
+Last updated / Dernière mise à jour : 2026-10-10
 
 ---
 
@@ -9,24 +9,35 @@ Last updated / Dernière mise à jour : 2026-09-25
 
 ### Summary
 
-**AI Chat Export does not collect, transmit, share or sell any user data.**
+**ChatLLM Exporter does not collect, transmit, share or sell any user data.**
 All processing happens locally inside your browser, on your own device.
 
 ### What the extension does
 
-- Reads the conversation **displayed in the active tab** (on Copilot, ChatGPT,
-  Claude or Gemini) when — and only when — you click one of the export buttons,
-  and converts it into a Markdown, PDF or text file that your browser saves
-  directly to your Downloads folder. The conversation content never leaves your
-  device through this extension.
-- On Copilot, the extension may re-read your conversation via Copilot's own
-  API, using your browser's existing session on `copilot.com`. This is a
-  same-origin request between your browser and Copilot, identical in nature to
-  the page loading its own data. Nothing is sent to the extension developer.
-- On Microsoft 365 Copilot Chat (`copilot.cloud.microsoft`, `m365.cloud.microsoft`), the conversation is re-read from Microsoft's Substrate API (`substrate.office.com`) using the authentication token already present in your browser session — the same request the page itself makes. Nothing is sent to the extension developer.
-- Stores your UI preferences (selected platform, language, export options) via
-  `chrome.storage.sync`. This data is synced through your own Google account by
-  Chrome itself and is **not accessible to the developer**.
+- The extension reads the conversation **displayed in the page** (on Microsoft
+  Copilot, Google Gemini or Anthropic Claude) when — and only when — you click
+  the export button, and converts it into a Markdown, PDF, ZIP or text file
+  that your browser saves directly to your Downloads folder. The conversation
+  content never leaves your device through this extension.
+- To capture the whole conversation, the extension automatically scrolls the
+  page up and down. This happens in the tab you are viewing, exactly as if you
+  scrolled manually.
+- Some conversation images are fetched by the extension's service worker to
+  work around browser CORS restrictions. These requests go straight from your
+  browser to the chat platform the image already came from; nothing is sent to
+  the developer, and no third-party server is involved.
+- The extension uses `chrome.storage.local` **only** to temporarily pass the
+  captured conversation to its own print page when you export to PDF. This data
+  is local to your browser and is not synced anywhere.
+
+### Permissions and why
+
+| Permission | Reason |
+|---|---|
+| `activeTab`, `scripting` | Read the conversation you are viewing, only when you trigger an export |
+| Host permissions (claude.ai, gemini.google.com, copilot.com, copilot.microsoft.com, copilot.cloud.microsoft, bing.com) | Access the conversation DOM on the supported chat platforms |
+| `downloads` | Save the generated export file (MD/PDF/ZIP/TXT) to your Downloads folder, only on your click |
+| `storage`, `unlimitedStorage` | Temporarily hold the captured conversation locally while generating the PDF export (long conversations with many images exceed the default quota) |
 
 ### What the extension does NOT do
 
@@ -34,13 +45,6 @@ All processing happens locally inside your browser, on your own device.
 - No accounts, no sign-in, no server operated by the developer
 - No sale, transfer or sharing of data with third parties
 - No use of data for any purpose other than the export you requested
-
-### Third-party links
-
-The popup contains an optional "Buy me a coffee" link to
-[ko-fi.com/tristanlozahic](https://ko-fi.com/tristanlozahic). Clicking it is
-voluntary; once on ko-fi.com, Ko-fi's own privacy policy applies. The
-extension itself sends no data to Ko-fi.
 
 ### Source code
 
@@ -59,27 +63,39 @@ Questions about this policy? Open an issue on
 
 ### Résumé
 
-**AI Chat Export ne collecte, ne transmet, ne partage ni ne vend aucune
+**ChatLLM Exporter ne collecte, ne transmet, ne partage ni ne vend aucune
 donnée utilisateur.** Tout le traitement se fait localement dans votre
 navigateur, sur votre propre appareil.
 
 ### Ce que fait l'extension
 
-- Lit la conversation **affichée dans l'onglet actif** (sur Copilot, ChatGPT,
-  Claude ou Gemini) lorsque — et seulement lorsque — vous cliquez sur l'un des
-  boutons d'export, et la convertit en fichier Markdown, PDF ou texte que
-  votre navigateur enregistre directement dans votre dossier Téléchargements.
-  Le contenu de la conversation ne quitte jamais votre appareil par cette
-  extension.
-- Sur Copilot, l'extension peut relire votre conversation via l'API de Copilot
-  elle-même, en utilisant la session existante de votre navigateur sur
-  `copilot.com`. Il s'agit d'une requête de même origine entre votre navigateur
-  et Copilot, de même nature que le chargement de la page elle-même. Rien
-  n'est envoyé au développeur de l'extension.
-- Sur Microsoft 365 Copilot Chat (`copilot.cloud.microsoft`, `m365.cloud.microsoft`), la conversation est relue depuis l'API Substrate de Microsoft (`substrate.office.com`) avec le jeton d'authentification déjà présent dans la session du navigateur — la même requête que celle qu'effectue la page elle-même. Rien n'est envoyé au développeur de l'extension.
-- Stocke vos préférences d'interface (plateforme, langue, options) via
-  `chrome.storage.sync`. Ces données sont synchronisées par Chrome à travers
-  votre propre compte Google et **ne sont pas accessibles au développeur**.
+- L'extension lit la conversation **affichée dans la page** (sur Microsoft
+  Copilot, Google Gemini ou Anthropic Claude) lorsque — et seulement lorsque —
+  vous cliquez sur le bouton d'export, et la convertit en fichier Markdown,
+  PDF, ZIP ou texte que votre navigateur enregistre directement dans votre
+  dossier Téléchargements. Le contenu de la conversation ne quitte jamais votre
+  appareil par cette extension.
+- Pour capturer la conversation entière, l'extension fait défiler la page
+  automatiquement de haut en bas. Cela se produit dans l'onglet que vous
+  consultez, exactement comme si vous défiliez manuellement.
+- Certaines images de la conversation sont récupérées par le service worker de
+  l'extension pour contourner les restrictions CORS du navigateur. Ces requêtes
+  vont directement de votre navigateur vers la plateforme de chat d'où provient
+  déjà l'image ; rien n'est envoyé au développeur et aucun serveur tiers n'est
+  impliqué.
+- L'extension utilise `chrome.storage.local` **uniquement** pour transmettre
+  temporairement la conversation capturée à sa propre page d'impression lors
+  d'un export PDF. Ces données sont locales à votre navigateur et ne sont
+  synchronisées nulle part.
+
+### Permissions et raisons
+
+| Permission | Raison |
+|---|---|
+| `activeTab`, `scripting` | Lire la conversation consultée, uniquement quand vous déclenchez un export |
+| Permissions d'hôtes (claude.ai, gemini.google.com, copilot.com, copilot.microsoft.com, copilot.cloud.microsoft, bing.com) | Accéder au DOM des conversations sur les plateformes supportées |
+| `downloads` | Enregistrer le fichier d'export généré (MD/PDF/ZIP/TXT) dans votre dossier Téléchargements, uniquement à votre clic |
+| `storage`, `unlimitedStorage` | Contenir temporairement la conversation capturée localement pendant la génération de l'export PDF (les longues conversations riches en images dépassent le quota par défaut) |
 
 ### Ce que l'extension ne fait PAS
 
@@ -87,13 +103,6 @@ navigateur, sur votre propre appareil.
 - Aucun compte, aucune connexion, aucun serveur opéré par le développeur
 - Aucune vente, cession ou partage de données à des tiers
 - Aucune utilisation des données pour un autre but que l'export demandé
-
-### Liens tiers
-
-Le popup contient un lien optionnel « ☕ Offrir un café » vers
-[ko-fi.com/tristanlozahic](https://ko-fi.com/tristanlozahic). Le clic est
-volontaire ; une fois sur ko-fi.com, la politique de confidentialité de Ko-fi
-s'applique. L'extension elle-même n'envoie aucune donnée à Ko-fi.
 
 ### Code source
 
