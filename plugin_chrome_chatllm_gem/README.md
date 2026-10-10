@@ -170,3 +170,21 @@ plugin_chrome_chatllm/
 ### v1.4.1
 - R?solution du problme du fallback HTML pour l'export PDF : si la conversation d?passe la limite de taille de Chrome (50MB) et que l'extension bascule sur l'export HTML de secours, les images s'affichent d?sormais correctement.
 - Am?lioration de l'empreinte d'identification des messages : les messages trs courts (comme \Voici l'image : \) contenant des g?n?rations diff?rentes ne seront plus fusionn?s ni dupliqu?s suite au chargement asynchrone des images.
+
+### v1.5.4 - v1.5.5 (fork amélioré)
+- **Galeries d'images uploadées** : dépliage automatique des piles d'images multiples (« N images » / « +N ») pendant le balayage — seule la première image était capturée auparavant, les suivantes étaient masquées.
+- Détection des pastilles de galerie sans rôle bouton explicite ; protection anti double-clic (les contrôles « Afficher moins » ne sont jamais cliqués).
+
+### v1.5.6
+- **Correction des doublons massifs** : fusion des messages par contenu (rôle + texte + première image stable) au fil du balayage ; les empreintes d'identification ne dérivent plus (URLs `blob:` exclues du calcul).
+
+### v1.5.7
+- Correction des derniers doublons (clé de fusion sans indice d'image pour les textes longs — les images générées arrivant après le texte entre deux passes).
+- **Artefacts `blob:` (planches générées)** : récupérés pendant l'export tant que la page vit, au lieu de laisser des liens morts.
+- Garde-fou sur le titre de conversation (repli si le titre vaut « Microsoft Copilot »).
+
+### v1.5.8
+- **Planches PDF générées par Copilot** : détection des vrais PDF (%PDF magic bytes), MIME `application/pdf` corrigé (au lieu de `application/octet-stream`), aperçu PDF intégré dans l'export HTML/PDF, fichiers `planches/*.pdf` dans l'export ZIP, marqueurs courts dans l'export TXT.
+
+### v2.3.0
+- Version store alignée sur la numérotation de la fiche Chrome Web Store.
